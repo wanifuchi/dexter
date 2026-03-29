@@ -28,6 +28,7 @@
     "@langchain/tavily": "^1.2.0",
     "@mariozechner/pi-tui": "^0.52.12",
     "@mozilla/readability": "^0.6.0",
+    "@upstash/redis": "^1.37.0",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "better-sqlite3": "^12.8.0",
     "croner": "^9.1.0",

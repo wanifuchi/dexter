@@ -1,36 +1,21 @@
 /**
  * アラートルールの永続化ストア
- * .dexter/trading/alert-rules.json に保存
+ * Upstash Redis優先、ローカルファイルフォールバック
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { dexterPath } from '../../utils/paths.js';
+import { loadAlertStoreKV, saveAlertStoreKV } from './kv-store.js';
 import type { AlertRule, AlertStore } from './types.js';
 
-const ALERT_RULES_PATH = dexterPath('trading', 'alert-rules.json');
-
-function emptyStore(): AlertStore {
-  return { version: 1, rules: [] };
+export async function loadAlertStore(): Promise<AlertStore> {
+  return loadAlertStoreKV();
 }
 
-export function loadAlertStore(): AlertStore {
-  if (!existsSync(ALERT_RULES_PATH)) return emptyStore();
-  try {
-    return JSON.parse(readFileSync(ALERT_RULES_PATH, 'utf-8'));
-  } catch {
-    return emptyStore();
-  }
+export async function saveAlertStore(store: AlertStore): Promise<void> {
+  await saveAlertStoreKV(store);
 }
 
-export function saveAlertStore(store: AlertStore): void {
-  const dir = dirname(ALERT_RULES_PATH);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(ALERT_RULES_PATH, JSON.stringify(store, null, 2), 'utf-8');
-}
-
-export function addAlertRule(rule: Omit<AlertRule, 'id' | 'createdAt' | 'enabled'>): AlertRule {
-  const store = loadAlertStore();
+export async function addAlertRule(rule: Omit<AlertRule, 'id' | 'createdAt' | 'enabled'>): Promise<AlertRule> {
+  const store = await loadAlertStore();
   const newRule: AlertRule = {
     ...rule,
     id: randomBytes(6).toString('hex'),
@@ -38,33 +23,33 @@ export function addAlertRule(rule: Omit<AlertRule, 'id' | 'createdAt' | 'enabled
     createdAt: Date.now(),
   };
   store.rules.push(newRule);
-  saveAlertStore(store);
+  await saveAlertStore(store);
   return newRule;
 }
 
-export function removeAlertRule(id: string): boolean {
-  const store = loadAlertStore();
+export async function removeAlertRule(id: string): Promise<boolean> {
+  const store = await loadAlertStore();
   const before = store.rules.length;
   store.rules = store.rules.filter((r) => r.id !== id);
   if (store.rules.length === before) return false;
-  saveAlertStore(store);
+  await saveAlertStore(store);
   return true;
 }
 
-export function toggleAlertRule(id: string, enabled: boolean): AlertRule | null {
-  const store = loadAlertStore();
+export async function toggleAlertRule(id: string, enabled: boolean): Promise<AlertRule | null> {
+  const store = await loadAlertStore();
   const rule = store.rules.find((r) => r.id === id);
   if (!rule) return null;
   rule.enabled = enabled;
-  saveAlertStore(store);
+  await saveAlertStore(store);
   return rule;
 }
 
-export function markTriggered(id: string): void {
-  const store = loadAlertStore();
+export async function markTriggered(id: string): Promise<void> {
+  const store = await loadAlertStore();
   const rule = store.rules.find((r) => r.id === id);
   if (rule) {
     rule.lastTriggeredAt = Date.now();
-    saveAlertStore(store);
+    await saveAlertStore(store);
   }
 }

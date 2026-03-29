@@ -79,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // 1. 監視対象のticker一覧を収集
-    const tickers = collectWatchedTickers();
+    const tickers = await collectWatchedTickers();
     if (tickers.length === 0) {
       return res.json({ status: 'ok', message: 'No tickers to watch', signals: 0 });
     }
@@ -92,11 +92,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 3. アラートルール評価
-    const alertStore = loadAlertStore();
-    const alertSignals = evaluateAlertRules(alertStore.rules, snapshots);
+    const alertStore = await loadAlertStore();
+    const alertSignals = await evaluateAlertRules(alertStore.rules, snapshots);
 
     // 4. ポートフォリオ異常検出
-    const portfolio = loadPortfolio();
+    const portfolio = await loadPortfolio();
     const portfolioSignals = evaluatePortfolioSignals(portfolio.positions, snapshots);
 
     // 5. シグナル統合

@@ -20,10 +20,10 @@ export interface TickerSnapshot {
 /**
  * アラートルールを評価し、条件を満たすシグナルを返す
  */
-export function evaluateAlertRules(
+export async function evaluateAlertRules(
   rules: AlertRule[],
   snapshots: Map<string, TickerSnapshot>,
-): Signal[] {
+): Promise<Signal[]> {
   const signals: Signal[] = [];
 
   for (const rule of rules) {
@@ -34,7 +34,7 @@ export function evaluateAlertRules(
 
     const signal = evaluateRule(rule, snap);
     if (signal) {
-      markTriggered(rule.id);
+      await markTriggered(rule.id);
       signals.push(signal);
     }
   }
@@ -153,9 +153,9 @@ function evaluateRule(rule: AlertRule, snap: TickerSnapshot): Signal | null {
 /**
  * ポートフォリオ全銘柄 + アラートルール全銘柄のticker一覧を返す
  */
-export function collectWatchedTickers(): string[] {
-  const portfolio = loadPortfolio();
-  const alertStore = loadAlertStore();
+export async function collectWatchedTickers(): Promise<string[]> {
+  const portfolio = await loadPortfolio();
+  const alertStore = await loadAlertStore();
 
   const tickers = new Set<string>();
   for (const p of portfolio.positions) tickers.add(p.ticker);

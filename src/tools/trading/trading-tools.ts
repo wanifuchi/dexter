@@ -36,7 +36,7 @@ export const portfolioManager = new DynamicStructuredTool({
   func: async (input) => {
     switch (input.action) {
       case 'list': {
-        const portfolio = loadPortfolio();
+        const portfolio = await loadPortfolio();
         return formatToolResult({
           positionCount: portfolio.positions.length,
           positions: portfolio.positions,
@@ -47,7 +47,7 @@ export const portfolioManager = new DynamicStructuredTool({
         if (!input.ticker || !input.shares || !input.avgCost || !input.account) {
           return formatToolResult({ error: 'ticker, shares, avgCost, accountは必須です' });
         }
-        const portfolio = addPosition({
+        const portfolio = await addPosition({
           ticker: input.ticker,
           name: input.name ?? input.ticker,
           shares: input.shares,
@@ -64,7 +64,7 @@ export const portfolioManager = new DynamicStructuredTool({
         if (!input.ticker) {
           return formatToolResult({ error: 'tickerは必須です' });
         }
-        const portfolio = removePosition(input.ticker, input.account as AccountType | undefined);
+        const portfolio = await removePosition(input.ticker, input.account as AccountType | undefined);
         return formatToolResult({
           message: `${input.ticker}を削除しました`,
           positionCount: portfolio.positions.length,
@@ -105,7 +105,7 @@ export const alertManager = new DynamicStructuredTool({
   func: async (input) => {
     switch (input.action) {
       case 'list': {
-        const store = loadAlertStore();
+        const store = await loadAlertStore();
         return formatToolResult({
           ruleCount: store.rules.length,
           rules: store.rules.map((r) => ({
@@ -119,7 +119,7 @@ export const alertManager = new DynamicStructuredTool({
         if (!input.ticker || !input.condition || input.threshold === undefined) {
           return formatToolResult({ error: 'ticker, condition, thresholdは必須です' });
         }
-        const rule = addAlertRule({
+        const rule = await addAlertRule({
           ticker: input.ticker,
           name: input.name,
           condition: input.condition as AlertCondition,
@@ -131,7 +131,7 @@ export const alertManager = new DynamicStructuredTool({
         if (!input.ruleId) {
           return formatToolResult({ error: 'ruleIdは必須です' });
         }
-        const removed = removeAlertRule(input.ruleId);
+        const removed = await removeAlertRule(input.ruleId);
         return formatToolResult({
           message: removed ? 'ルールを削除しました' : 'ルールが見つかりません',
         });
@@ -140,7 +140,7 @@ export const alertManager = new DynamicStructuredTool({
         if (!input.ruleId || input.enabled === undefined) {
           return formatToolResult({ error: 'ruleIdとenabledは必須です' });
         }
-        const rule = toggleAlertRule(input.ruleId, input.enabled);
+        const rule = await toggleAlertRule(input.ruleId, input.enabled);
         return formatToolResult({
           message: rule ? `ルールを${input.enabled ? '有効' : '無効'}にしました` : 'ルールが見つかりません',
         });
