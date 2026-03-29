@@ -6,6 +6,7 @@ import {
   type SuppressionState,
 } from '../gateway/heartbeat/suppression.js';
 import { assertOutboundAllowed, sendMessageWhatsApp } from '../gateway/channels/whatsapp/index.js';
+import { sendMessageLine, isLineAvailable } from '../gateway/channels/line/index.js';
 import { resolveSessionStorePath, loadSessionStore, type SessionEntry } from '../gateway/sessions/store.js';
 import { cleanMarkdownForWhatsApp } from '../gateway/utils.js';
 import { getSetting } from '../utils/config.js';
@@ -176,7 +177,17 @@ export async function executeCronJob(
       body: cleaned,
       accountId: session.lastAccountId,
     });
-    debugLog(`[cron] job ${job.id}: delivered to ${session.lastTo}`);
+    debugLog(`[cron] job ${job.id}: delivered to ${session.lastTo} (WhatsApp)`);
+
+    // Deliver via LINE (if configured)
+    if (isLineAvailable()) {
+      const lineResult = await sendMessageLine({ body: cleaned });
+      if (lineResult.success) {
+        debugLog(`[cron] job ${job.id}: delivered (LINE)`);
+      } else {
+        debugLog(`[cron] job ${job.id}: LINE delivery failed: ${lineResult.error}`);
+      }
+    }
 
     // Update suppression state for duplicate detection
     suppState.lastMessageText = suppResult.cleanedText;

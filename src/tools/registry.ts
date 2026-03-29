@@ -45,6 +45,12 @@ import { heartbeatTool, HEARTBEAT_TOOL_DESCRIPTION } from './heartbeat/heartbeat
 import { cronTool, CRON_TOOL_DESCRIPTION } from './cron/cron-tool.js';
 import { memoryGetTool, MEMORY_GET_DESCRIPTION, memorySearchTool, MEMORY_SEARCH_DESCRIPTION, memoryUpdateTool, MEMORY_UPDATE_DESCRIPTION } from './memory/index.js';
 import { discoverSkills } from '../skills/index.js';
+// === トレーディングツール (trading/) ===
+import {
+  portfolioManager, PORTFOLIO_MANAGER_DESCRIPTION,
+  alertManager, ALERT_MANAGER_DESCRIPTION,
+  sendNotification, SEND_NOTIFICATION_DESCRIPTION,
+} from './trading/index.js';
 
 /**
  * A registered tool with its rich description for system prompt injection.
@@ -262,6 +268,13 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       { name: 'jp_stock_price', tool: jpStockPrice, description: JP_STOCK_PRICE_DESCRIPTION },
     );
   }
+
+  // === トレーディングツール（常時有効） ===
+  tools.push(
+    { name: 'portfolio_manager', tool: portfolioManager, description: PORTFOLIO_MANAGER_DESCRIPTION },
+    { name: 'alert_manager', tool: alertManager, description: ALERT_MANAGER_DESCRIPTION },
+    { name: 'send_notification', tool: sendNotification, description: SEND_NOTIFICATION_DESCRIPTION },
+  );
 
   // Include skill tool if any skills are available
   const availableSkills = discoverSkills();
