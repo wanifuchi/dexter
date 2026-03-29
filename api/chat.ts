@@ -6,9 +6,9 @@
  * LangChain providers work without changes.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { runAgentForMessage } from '../src/gateway/agent-runner';
-import { resolveProvider } from '../src/providers';
-import type { AgentEvent } from '../src/agent/types';
+import { runAgentForMessage } from '../src/gateway/agent-runner.js';
+import { resolveProvider } from '../src/providers.js';
+import type { AgentEvent } from '../src/agent/types.js';
 
 // Allow up to 5 minutes for complex analyses
 export const maxDuration = 300;

@@ -1,4 +1,4 @@
-import { PROVIDERS as PROVIDER_DEFS } from '@/providers';
+import { PROVIDERS as PROVIDER_DEFS } from '../providers.js';
 
 export interface Model {
   id: string;

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { config } from 'dotenv';
-import { getProviderById } from '@/providers';
+import { getProviderById } from '../providers.js';
 
 // Load .env on module import
 config({ quiet: true });

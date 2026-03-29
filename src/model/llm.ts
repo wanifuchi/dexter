@@ -9,11 +9,11 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { StructuredToolInterface } from '@langchain/core/tools';
 import { Runnable } from '@langchain/core/runnables';
 import { z } from 'zod';
-import { DEFAULT_SYSTEM_PROMPT } from '@/agent/prompts';
-import type { TokenUsage } from '@/agent/types';
-import { logger } from '@/utils';
-import { classifyError, isNonRetryableError } from '@/utils/errors';
-import { resolveProvider, getProviderById } from '@/providers';
+import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompts.js';
+import type { TokenUsage } from '../agent/types.js';
+import { logger } from '../utils/index.js';
+import { classifyError, isNonRetryableError } from '../utils/errors.js';
+import { resolveProvider, getProviderById } from '../providers.js';
 
 export const DEFAULT_PROVIDER = 'openai';
 export const DEFAULT_MODEL = 'gpt-5.4';
