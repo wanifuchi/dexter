@@ -1,7 +1,7 @@
 export const HISTORY_CONTEXT_MARKER = '[Chat history for context]';
 export const CURRENT_MESSAGE_MARKER = '[Current message - respond to this]';
 export const DEFAULT_HISTORY_LIMIT = 10;
-export const FULL_ANSWER_TURNS = 3;
+export const FULL_ANSWER_TURNS = 5;
 
 export interface HistoryEntry {
   role: 'user' | 'assistant';

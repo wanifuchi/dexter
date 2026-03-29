@@ -28,7 +28,12 @@ export const SelectedMessagesSchema = z.object({
  * System prompt for generating message summaries
  */
 const MESSAGE_SUMMARY_SYSTEM_PROMPT = `You are a concise summarizer. Generate brief summaries of conversation answers.
-Keep summaries to 1-2 sentences that capture the key information.`;
+Keep summaries to 2-4 sentences. You MUST capture:
+1. The key conclusion or finding
+2. Any specific next steps, promises, or action items the assistant offered to do
+3. Any decisions or agreements reached with the user
+
+It is CRITICAL to preserve what the assistant said it would do next, as the user may refer to it in follow-up messages (e.g. "do it", "go ahead", "yes please").`;
 
 /**
  * System prompt for selecting relevant messages
@@ -69,12 +74,21 @@ export class InMemoryChatHistory {
    * Generates a brief summary of an answer for later relevance matching
    */
   private async generateSummary(query: string, answer: string): Promise<string> {
-    const answerPreview = answer.slice(0, 1500); // Limit for prompt size
+    // Include both start and end of the answer — promised next steps are often at the end
+    const maxChars = 3000;
+    let answerPreview: string;
+    if (answer.length <= maxChars) {
+      answerPreview = answer;
+    } else {
+      const headSize = Math.floor(maxChars * 0.6);
+      const tailSize = maxChars - headSize;
+      answerPreview = answer.slice(0, headSize) + '\n...[middle truncated]...\n' + answer.slice(-tailSize);
+    }
 
     const prompt = `Query: "${query}"
 Answer: "${answerPreview}"
 
-Generate a brief 1-2 sentence summary of this answer.`;
+Generate a 2-4 sentence summary. IMPORTANT: You must include any promised next steps or action items the assistant offered to do.`;
 
     try {
       const { response } = await callLlm(prompt, {
@@ -263,6 +277,31 @@ Select which previous messages are relevant to understanding or answering the cu
    */
   clear(): void {
     this.messages = [];
+    this.relevantMessagesByQuery.clear();
+  }
+
+  /**
+   * Serialize messages to a plain object for persistence.
+   * Only includes completed messages (with answers).
+   */
+  toJSON(): Message[] {
+    return this.messages.filter((m) => m.answer !== null);
+  }
+
+  /**
+   * Restore messages from a previously serialized array.
+   * Merges into current state (skips duplicates by id).
+   */
+  loadFromJSON(data: Message[]): void {
+    if (!Array.isArray(data) || data.length === 0) return;
+    const existingIds = new Set(this.messages.map((m) => m.id));
+    for (const msg of data) {
+      if (!existingIds.has(msg.id)) {
+        this.messages.push(msg);
+      }
+    }
+    // 既存IDと衝突しないようID振り直し
+    this.messages.forEach((m, i) => { m.id = i; });
     this.relevantMessagesByQuery.clear();
   }
 }
