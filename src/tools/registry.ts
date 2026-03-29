@@ -1,5 +1,35 @@
 import { StructuredToolInterface } from '@langchain/core/tools';
 import { createGetFinancials, createGetMarketData, createReadFilings, createScreenStocks } from './finance/index.js';
+import { yahooQuote, yahooChart, yahooSummary, YAHOO_QUOTE_DESCRIPTION, YAHOO_CHART_DESCRIPTION, YAHOO_SUMMARY_DESCRIPTION } from './finance/yahoo-finance.js';
+import { avGlobalQuote, avCompanyOverview, AV_GLOBAL_QUOTE_DESCRIPTION, AV_COMPANY_OVERVIEW_DESCRIPTION } from './finance/alpha-vantage.js';
+import {
+  finnhubRecommendation, finnhubNews, finnhubQuote, finnhubEarningsCalendar,
+  finnhubProfile, finnhubPriceTarget,
+  FINNHUB_RECOMMENDATION_DESCRIPTION, FINNHUB_NEWS_DESCRIPTION, FINNHUB_QUOTE_DESCRIPTION,
+  FINNHUB_EARNINGS_DESCRIPTION, FINNHUB_PROFILE_DESCRIPTION, FINNHUB_PRICE_TARGET_DESCRIPTION,
+} from './finance/finnhub.js';
+import {
+  twelveDataTechnicals, twelveDataTimeSeries,
+  TD_TECHNICALS_DESCRIPTION, TD_TIME_SERIES_DESCRIPTION,
+} from './finance/twelve-data.js';
+import {
+  fmpProfile, fmpIncomeStatement, fmpScreener, fmpKeyMetrics,
+  FMP_PROFILE_DESCRIPTION, FMP_INCOME_DESCRIPTION, FMP_SCREENER_DESCRIPTION, FMP_KEY_METRICS_DESCRIPTION,
+} from './finance/fmp.js';
+import {
+  polygonPrevClose, polygonAggregates, polygonTickerDetails,
+  POLYGON_PREV_CLOSE_DESCRIPTION, POLYGON_AGGREGATES_DESCRIPTION, POLYGON_TICKER_DETAILS_DESCRIPTION,
+} from './finance/polygon.js';
+// === 日本株ツール (finance-jp/) ===
+import {
+  jpFinancials, jpCompanyInfo, jpAnalysis, jpEarnings, jpFilingText, jpShareholders,
+  JP_FINANCIALS_DESCRIPTION, JP_COMPANY_INFO_DESCRIPTION, JP_ANALYSIS_DESCRIPTION,
+  JP_EARNINGS_DESCRIPTION, JP_FILING_TEXT_DESCRIPTION, JP_SHAREHOLDERS_DESCRIPTION,
+  isEdinetAvailable,
+} from './finance-jp/index.js';
+import { jpStockPrice, JP_STOCK_PRICE_DESCRIPTION, isJQuantsAvailable } from './finance-jp/index.js';
+import { createJpScreener, JP_SCREENER_DESCRIPTION } from './finance-jp/index.js';
+
 import { exaSearch, perplexitySearch, tavilySearch, WEB_SEARCH_DESCRIPTION, xSearchTool, X_SEARCH_DESCRIPTION } from './search/index.js';
 import { skillTool, SKILL_TOOL_DESCRIPTION } from './skill.js';
 import { webFetchTool, WEB_FETCH_DESCRIPTION } from './fetch/web-fetch.js';
@@ -109,6 +139,80 @@ export function getToolRegistry(model: string): RegisteredTool[] {
     },
   ];
 
+  // Yahoo Finance tools (no API key required — always available)
+  tools.push(
+    {
+      name: 'yahoo_quote',
+      tool: yahooQuote,
+      description: YAHOO_QUOTE_DESCRIPTION,
+    },
+    {
+      name: 'yahoo_chart',
+      tool: yahooChart,
+      description: YAHOO_CHART_DESCRIPTION,
+    },
+    {
+      name: 'yahoo_summary',
+      tool: yahooSummary,
+      description: YAHOO_SUMMARY_DESCRIPTION,
+    },
+  );
+
+  // Finnhub tools (if API key is configured)
+  if (process.env.FINNHUB_API_KEY) {
+    tools.push(
+      { name: 'finnhub_recommendation', tool: finnhubRecommendation, description: FINNHUB_RECOMMENDATION_DESCRIPTION },
+      { name: 'finnhub_news', tool: finnhubNews, description: FINNHUB_NEWS_DESCRIPTION },
+      { name: 'finnhub_quote', tool: finnhubQuote, description: FINNHUB_QUOTE_DESCRIPTION },
+      { name: 'finnhub_earnings_calendar', tool: finnhubEarningsCalendar, description: FINNHUB_EARNINGS_DESCRIPTION },
+      { name: 'finnhub_profile', tool: finnhubProfile, description: FINNHUB_PROFILE_DESCRIPTION },
+      { name: 'finnhub_price_target', tool: finnhubPriceTarget, description: FINNHUB_PRICE_TARGET_DESCRIPTION },
+    );
+  }
+
+  // Twelve Data tools (if API key is configured)
+  if (process.env.TWELVE_DATA_API_KEY) {
+    tools.push(
+      { name: 'td_technicals', tool: twelveDataTechnicals, description: TD_TECHNICALS_DESCRIPTION },
+      { name: 'td_time_series', tool: twelveDataTimeSeries, description: TD_TIME_SERIES_DESCRIPTION },
+    );
+  }
+
+  // FMP tools (if API key is configured)
+  if (process.env.FMP_API_KEY) {
+    tools.push(
+      { name: 'fmp_profile', tool: fmpProfile, description: FMP_PROFILE_DESCRIPTION },
+      { name: 'fmp_income_statement', tool: fmpIncomeStatement, description: FMP_INCOME_DESCRIPTION },
+      { name: 'fmp_screener', tool: fmpScreener, description: FMP_SCREENER_DESCRIPTION },
+      { name: 'fmp_key_metrics', tool: fmpKeyMetrics, description: FMP_KEY_METRICS_DESCRIPTION },
+    );
+  }
+
+  // Polygon.io tools (if API key is configured)
+  if (process.env.POLYGON_API_KEY) {
+    tools.push(
+      { name: 'polygon_prev_close', tool: polygonPrevClose, description: POLYGON_PREV_CLOSE_DESCRIPTION },
+      { name: 'polygon_aggregates', tool: polygonAggregates, description: POLYGON_AGGREGATES_DESCRIPTION },
+      { name: 'polygon_ticker_details', tool: polygonTickerDetails, description: POLYGON_TICKER_DETAILS_DESCRIPTION },
+    );
+  }
+
+  // Alpha Vantage tools (if API key is configured)
+  if (process.env.ALPHA_VANTAGE_API_KEY) {
+    tools.push(
+      {
+        name: 'av_global_quote',
+        tool: avGlobalQuote,
+        description: AV_GLOBAL_QUOTE_DESCRIPTION,
+      },
+      {
+        name: 'av_company_overview',
+        tool: avCompanyOverview,
+        description: AV_COMPANY_OVERVIEW_DESCRIPTION,
+      },
+    );
+  }
+
   // Include web_search if Exa, Perplexity, or Tavily API key is configured (Exa → Perplexity → Tavily)
   if (process.env.EXASEARCH_API_KEY) {
     tools.push({
@@ -137,6 +241,26 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       tool: xSearchTool,
       description: X_SEARCH_DESCRIPTION,
     });
+  }
+
+  // === 日本株ツール (EDINET DB — if API key is configured) ===
+  if (isEdinetAvailable()) {
+    tools.push(
+      { name: 'jp_financials', tool: jpFinancials, description: JP_FINANCIALS_DESCRIPTION },
+      { name: 'jp_company_info', tool: jpCompanyInfo, description: JP_COMPANY_INFO_DESCRIPTION },
+      { name: 'jp_analysis', tool: jpAnalysis, description: JP_ANALYSIS_DESCRIPTION },
+      { name: 'jp_earnings', tool: jpEarnings, description: JP_EARNINGS_DESCRIPTION },
+      { name: 'jp_filing_text', tool: jpFilingText, description: JP_FILING_TEXT_DESCRIPTION },
+      { name: 'jp_shareholders', tool: jpShareholders, description: JP_SHAREHOLDERS_DESCRIPTION },
+      { name: 'jp_screener', tool: createJpScreener(model), description: JP_SCREENER_DESCRIPTION },
+    );
+  }
+
+  // J-Quants 日本株価ツール (if API key is configured)
+  if (isJQuantsAvailable()) {
+    tools.push(
+      { name: 'jp_stock_price', tool: jpStockPrice, description: JP_STOCK_PRICE_DESCRIPTION },
+    );
   }
 
   // Include skill tool if any skills are available
