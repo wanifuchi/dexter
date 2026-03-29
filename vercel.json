@@ -10,5 +10,11 @@
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },
     { "source": "/api/chat", "destination": "/api/chat" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/scan-alerts",
+      "schedule": "0 7 * * 1-5"
+    }
   ]
 }

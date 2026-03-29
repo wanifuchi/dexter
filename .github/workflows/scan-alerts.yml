@@ -1,0 +1,23 @@
+name: Scan Trading Alerts
+
+on:
+  schedule:
+    # 5分間隔、東証+NYSE営業時間帯（UTC）
+    # 東証: 00:00-06:00 UTC (9:00-15:00 JST)
+    # NYSE: 14:30-21:00 UTC (9:30-16:00 ET)
+    - cron: '*/5 0-6,14-21 * * 1-5'
+  workflow_dispatch: # 手動実行も可能
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger alert scan
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/scan-alerts" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}
