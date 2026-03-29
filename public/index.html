@@ -402,7 +402,7 @@
 
 <div class="input-area">
   <div class="input-wrapper">
-    <textarea id="input" rows="1" placeholder="銘柄分析や投資リサーチについて質問してください..." autofocus></textarea>
+    <textarea id="input" rows="1" placeholder="銘柄分析や投資リサーチについて質問してください... (Shift+Enterで送信)" autofocus></textarea>
     <button id="send-btn" onclick="sendMessage()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
@@ -433,9 +433,9 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
   });
 
-  // Enter送信 (Shift+Enterで改行)
+  // Shift+Enter送信 (Enterで改行)
   inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
@@ -617,7 +617,12 @@
           statsEl.innerHTML = `<span>処理時間: ${secs}秒</span><span>ステップ: ${data.iterations ?? '?'}回</span>`;
           if (data.tokenUsage) {
             const total = (data.tokenUsage.totalTokens || 0).toLocaleString();
-            statsEl.innerHTML += `<span>トークン: ${total}</span>`;
+            const input = data.tokenUsage.inputTokens || 0;
+            const output = data.tokenUsage.outputTokens || 0;
+            // GPT-5.4 pricing estimate: input $2.50/1M, output $10.00/1M
+            const costUsd = (input * 2.5 / 1_000_000) + (output * 10.0 / 1_000_000);
+            const costDisplay = costUsd < 0.01 ? '<¢1' : '$' + costUsd.toFixed(2);
+            statsEl.innerHTML += `<span>トークン: ${total}</span><span>推定コスト: ${costDisplay}</span>`;
           }
           bubbleEl.appendChild(statsEl);
         }
