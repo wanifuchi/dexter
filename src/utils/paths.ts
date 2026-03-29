@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 
-const DEXTER_DIR = '.dexter';
+// Use /tmp on Vercel (read-only filesystem), local .dexter otherwise
+const DEXTER_DIR = process.env.VERCEL ? '/tmp/.dexter' : '.dexter';
 
 export function getDexterDir(): string {
   return DEXTER_DIR;
