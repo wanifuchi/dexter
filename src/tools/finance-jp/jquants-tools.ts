@@ -57,11 +57,63 @@ async function resolveJQuantsCode(ticker: string): Promise<string> {
 }
 
 /**
- * 日本株 株価データ（J-Quants V2）
+ * Yahoo Finance経由で日本株のリアルタイム株価を取得
+ * J-Quantsの無料プランはデータが数ヶ月遅れるため、最新価格はYahoo Financeを使う
+ */
+async function fetchYahooJpQuote(secCode4: string): Promise<Record<string, unknown> | null> {
+  const ticker = secCode4 + '.T';
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=5d&interval=1d`;
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    const chart = data.chart as Record<string, unknown> | undefined;
+    const results = (chart?.result as Record<string, unknown>[]) ?? [];
+    if (results.length === 0) return null;
+
+    const meta = results[0].meta as Record<string, unknown>;
+    const timestamps = (results[0].timestamp as number[]) ?? [];
+    const indicators = results[0].indicators as Record<string, unknown>;
+    const quoteArr = (indicators?.quote as Record<string, unknown>[]) ?? [];
+    const q = quoteArr[0] ?? {};
+    const closes = (q.close as number[]) ?? [];
+    const volumes = (q.volume as number[]) ?? [];
+
+    const price = meta.regularMarketPrice as number;
+    const previousClose = meta.chartPreviousClose as number;
+    const marketTime = meta.regularMarketTime as number;
+    const date = marketTime ? new Date(marketTime * 1000).toISOString().split('T')[0] : undefined;
+
+    return {
+      code: secCode4,
+      date,
+      price,
+      previousClose,
+      change: price && previousClose ? Number((price - previousClose).toFixed(1)) : null,
+      changePercent: price && previousClose ? Number(((price - previousClose) / previousClose * 100).toFixed(2)) : null,
+      high: meta.regularMarketDayHigh ?? (closes.length > 0 ? Math.max(...closes.filter(Boolean)) : null),
+      low: meta.regularMarketDayLow ?? (closes.length > 0 ? Math.min(...closes.filter(Boolean)) : null),
+      volume: volumes.length > 0 ? volumes[volumes.length - 1] : null,
+      fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: meta.fiftyTwoWeekLow,
+      source: 'yahoo_finance',
+    };
+  } catch (error) {
+    logger.warn(`[Yahoo JP] failed for ${ticker}: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+}
+
+/**
+ * 日本株 株価データ
+ * 最新価格: Yahoo Finance（リアルタイム）
+ * 履歴データ: J-Quants（東証公式、無料プランは数ヶ月遅延あり）
  */
 export const jpStockPrice = new DynamicStructuredTool({
   name: 'jp_stock_price',
-  description: 'Fetches stock price data for Japanese equities from J-Quants (Tokyo Stock Exchange official data). Returns OHLC, volume, and split-adjusted prices. Specify date range for historical data, or omit for latest price.',
+  description: 'Fetches stock price data for Japanese equities. Returns real-time price from Yahoo Finance for latest quotes, or historical OHLC from J-Quants when date range is specified.',
   schema: z.object({
     ticker: z.string().describe("証券コード（例: '7203'）、企業名（例: 'トヨタ'）、またはEDINETコード"),
     from: z.string().optional().describe("開始日（YYYY-MM-DD）。省略時は最新データ"),
@@ -69,6 +121,19 @@ export const jpStockPrice = new DynamicStructuredTool({
   }),
   func: async (input) => {
     const code = await resolveJQuantsCode(input.ticker);
+    const secCode4 = code.slice(0, 4);
+
+    // 日付範囲指定なし → Yahoo Financeでリアルタイム取得
+    if (!input.from && !input.to) {
+      const yahoo = await fetchYahooJpQuote(secCode4);
+      if (yahoo) {
+        return formatToolResult(yahoo, [`https://finance.yahoo.co.jp/quote/${secCode4}.T`]);
+      }
+      // Yahoo失敗時はJ-Quantsにフォールバック
+      logger.info(`[jp_stock_price] Yahoo failed for ${secCode4}, falling back to J-Quants`);
+    }
+
+    // 日付範囲指定あり or Yahooフォールバック → J-Quants
     const params: Record<string, string | undefined> = {
       code,
       from: input.from,
@@ -82,7 +147,6 @@ export const jpStockPrice = new DynamicStructuredTool({
       return formatToolResult({ error: `株価データが見つかりません: ${input.ticker}` }, []);
     }
 
-    // 日付範囲指定なし → 最新のみ
     if (!input.from && !input.to) {
       const latest = bars[bars.length - 1];
       return formatToolResult({
@@ -94,10 +158,10 @@ export const jpStockPrice = new DynamicStructuredTool({
         close: latest.AdjC,
         volume: latest.AdjVo,
         turnover: latest.Va,
+        source: 'jquants',
       }, []);
     }
 
-    // 日付範囲指定あり → コンパクトな配列
     const compact = bars.map((q) => ({
       date: q.Date,
       open: q.AdjO,
