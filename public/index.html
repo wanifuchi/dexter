@@ -45,11 +45,44 @@
 
     .header-left { display: flex; align-items: center; gap: 10px; }
 
+    .logo-link {
+      cursor: pointer;
+      text-decoration: none;
+    }
+
     .logo-text {
       font-size: 17px;
       font-weight: 700;
       letter-spacing: -0.5px;
       color: var(--text);
+    }
+
+    /* TOPに戻るボタン */
+    .scroll-top-btn {
+      position: fixed;
+      bottom: 90px;
+      right: 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--text);
+      color: var(--bg);
+      border: none;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 100;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .scroll-top-btn:hover {
+      transform: scale(1.1);
+    }
+    .scroll-top-btn.visible {
+      display: flex;
     }
 
     .header-right { display: flex; align-items: center; gap: 12px; }
@@ -391,7 +424,7 @@
 
 <header>
   <div class="header-left">
-    <span class="logo-text">Finx</span>
+    <a class="logo-link" onclick="scrollToTop()"><span class="logo-text">Finx</span></a>
   </div>
   <div class="header-right">
     <button class="nav-btn active" onclick="showPage('chat')" id="nav-chat">チャット</button>
@@ -426,6 +459,13 @@
     </div>
   </div>
 </div>
+
+<!-- TOPに戻るボタン -->
+<button type="button" class="scroll-top-btn" id="scroll-top-btn" onclick="scrollToTop()" title="TOPに戻る">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+    <path d="M12 19V5M5 12l7-7 7 7"/>
+  </svg>
+</button>
 
 <!-- 履歴ページ -->
 <div class="page" id="history-page">
@@ -483,6 +523,22 @@
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
+
+  // TOPに戻る
+  function scrollToTop() {
+    showPage('chat');
+    messagesEl.scrollTop = 0;
+  }
+
+  // スクロール量に応じてTOPボタンの��示/非表示
+  const scrollTopBtn = document.getElementById('scroll-top-btn');
+  messagesEl.addEventListener('scroll', () => {
+    if (messagesEl.scrollTop > 300) {
+      scrollTopBtn.classList.add('visible');
+    } else {
+      scrollTopBtn.classList.remove('visible');
+    }
+  });
 
   // --- 履歴管理 (localStorage) ---
   function getHistory() {
