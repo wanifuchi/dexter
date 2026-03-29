@@ -3,7 +3,7 @@
  */
 
 /** 口座種別 */
-export type AccountType = 'sbi-nisa' | 'sbi-general' | 'rakuten-nisa' | 'rakuten-general';
+export type AccountType = 'sbi-nisa' | 'sbi-tokutei' | 'rakuten-nisa' | 'rakuten-tokutei';
 
 /** ポートフォリオの個別ポジション */
 export interface Position {

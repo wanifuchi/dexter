@@ -18,13 +18,13 @@ import type { AccountType, AlertCondition, NotificationChannel } from './types.j
 // ---------- ポートフォリオ管理 ----------
 
 const AccountTypeEnum = z.enum([
-  'sbi-nisa', 'sbi-general', 'rakuten-nisa', 'rakuten-general',
+  'sbi-nisa', 'sbi-tokutei', 'rakuten-nisa', 'rakuten-tokutei',
 ]);
 
 export const portfolioManager = new DynamicStructuredTool({
   name: 'portfolio_manager',
   description: `保有銘柄（ポートフォリオ）の登録・削除・一覧表示。
-口座はsbi-nisa, sbi-general, rakuten-nisa, rakuten-generalの4種類。`,
+口座はsbi-nisa, sbi-tokutei, rakuten-nisa, rakuten-tokuteiの4種類。`,
   schema: z.object({
     action: z.enum(['list', 'add', 'remove']).describe('操作種別'),
     ticker: z.string().optional().describe('銘柄コード (例: 8306, AAPL)'),
