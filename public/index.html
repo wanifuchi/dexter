@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finx - AI金融リサーチエージェント</title>
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary: #1a1a2e;
+      --bg-input: #16162a;
+      --text-primary: #e4e4ef;
+      --text-secondary: #8888a0;
+      --text-muted: #55556a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --border: #2a2a3e;
+      --border-subtle: #1e1e30;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ヘッダー */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-secondary);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      color: white;
+    }
+
+    .logo-text {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    /* メッセージエリア */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* ウェルカム画面 */
+    .welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 16px;
+      text-align: center;
+      padding: 40px;
+    }
+
+    .welcome h2 {
+      font-size: 22px;
+      font-weight: 600;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .welcome p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      max-width: 500px;
+      line-height: 1.6;
+    }
+
+    .suggestions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    .suggestion {
+      padding: 12px 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+      line-height: 1.4;
+    }
+
+    .suggestion:hover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      color: var(--text-primary);
+    }
+
+    /* メッセージバブル */
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 800px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .msg-user {
+      align-self: flex-end;
+    }
+
+    .msg-user .bubble {
+      background: var(--accent);
+      color: white;
+      border-radius: 16px 16px 4px 16px;
+      padding: 10px 16px;
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 70%;
+      align-self: flex-end;
+    }
+
+    .msg-assistant .bubble {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px 16px 16px 4px;
+      padding: 16px 20px;
+      font-size: 14px;
+      line-height: 1.7;
+      width: 100%;
+    }
+
+    .msg-assistant .bubble strong { color: var(--accent-hover); }
+    .msg-assistant .bubble code {
+      background: var(--bg-tertiary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    /* ツール実行表示 */
+    .tool-events {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .tool-event {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 4px 8px;
+    }
+
+    .tool-event .tool-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      background: var(--bg-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+
+    .tool-event.running .tool-icon { background: var(--accent-glow); color: var(--accent); }
+    .tool-event.done .tool-icon { background: rgba(34, 197, 94, 0.1); color: var(--green); }
+    .tool-event.error .tool-icon { background: rgba(239, 68, 68, 0.1); color: var(--red); }
+
+    /* 思考中 */
+    .thinking {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-style: italic;
+      padding: 4px 8px;
+      border-left: 2px solid var(--accent);
+      margin-bottom: 8px;
+      max-height: 60px;
+      overflow: hidden;
+    }
+
+    /* ローディング */
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .loading-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .loading-dots span {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: bounce 1.4s infinite ease-in-out;
+    }
+
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    /* 統計情報 */
+    .stats {
+      display: flex;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* 入力エリア */
+    .input-area {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-secondary);
+      flex-shrink: 0;
+    }
+
+    .input-wrapper {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 44px;
+      max-height: 120px;
+      line-height: 1.5;
+      transition: border-color 0.15s;
+    }
+
+    #input:focus { border-color: var(--accent); }
+
+    #input::placeholder { color: var(--text-muted); }
+
+    #send-btn {
+      width: 44px;
+      height: 44px;
+      background: var(--accent);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    #send-btn:hover { background: var(--accent-hover); }
+    #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #send-btn svg { width: 18px; height: 18px; }
+
+    /* テーブル */
+    .bubble table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 13px;
+    }
+
+    .bubble th, .bubble td {
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .bubble th {
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* レスポンシブ */
+    @media (max-width: 640px) {
+      .suggestions { grid-template-columns: 1fr; }
+      .msg-user .bubble { max-width: 85%; }
+      #messages { padding: 12px; }
+      .input-area { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">F</div>
+    <span class="logo-text">Finx</span>
+  </div>
+  <div class="status">
+    <div class="status-dot"></div>
+    <span id="model-name">読み込み中...</span>
+  </div>
+</header>
+
+<div id="messages">
+  <div class="welcome" id="welcome">
+    <h2>Finx 金融リサーチ</h2>
+    <p>自律型AI金融リサーチエージェント。銘柄スクリーニング、財務分析、投資論文の生成を自動で行います。</p>
+    <div class="suggestions">
+      <div class="suggestion" onclick="sendSuggestion(this)">NVIDIAの最新の財務状況を分析して</div>
+      <div class="suggestion" onclick="sendSuggestion(this)">トヨタ(7203)の財務分析をして</div>
+      <div class="suggestion" onclick="sendSuggestion(this)">ROE15%以上、配当利回り3%以上の日本株を探して</div>
+      <div class="suggestion" onclick="sendSuggestion(this)">PER20以下の割安な米国テクノロジー株をスクリーニング</div>
+    </div>
+  </div>
+</div>
+
+<div class="input-area">
+  <div class="input-wrapper">
+    <textarea id="input" rows="1" placeholder="銘柄分析や投資リサーチについて質問してください..." autofocus></textarea>
+    <button id="send-btn" onclick="sendMessage()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send-btn');
+  const welcomeEl = document.getElementById('welcome');
+  const modelNameEl = document.getElementById('model-name');
+
+  let isProcessing = false;
+  let sessionId = 'web-' + Date.now().toString(36);
+
+  // ヘルスチェック
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(d => { modelNameEl.textContent = 'モデル: ' + d.model; })
+    .catch(() => { modelNameEl.textContent = 'オフライン'; });
+
+  // テキストエリア自動リサイズ
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+  });
+
+  // Enter送信 (Shift+Enterで改行)
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  function sendSuggestion(el) {
+    inputEl.value = el.textContent;
+    sendMessage();
+  }
+
+  function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // マークダウン簡易パーサー
+  function renderMarkdown(text) {
+    if (!text) return '';
+    return text
+      // テーブル
+      .replace(/^\|(.+)\|\s*\n\|[-:|  ]+\|\s*\n((?:\|.+\|\s*\n?)*)/gm, (_, header, rows) => {
+        const ths = header.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+        const trs = rows.trim().split('\n').map(row => {
+          const tds = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+          return `<tr>${tds}</tr>`;
+        }).join('');
+        return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+      })
+      // 太字
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      // コード
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      // リスト
+      .replace(/^[-•] (.+)/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+      // 段落
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+  }
+
+  async function sendMessage() {
+    const query = inputEl.value.trim();
+    if (!query || isProcessing) return;
+
+    isProcessing = true;
+    sendBtn.disabled = true;
+
+    // ウェルカム画面を非表示
+    if (welcomeEl) welcomeEl.remove();
+
+    // ユーザーメッセージ表示
+    const userMsg = document.createElement('div');
+    userMsg.className = 'msg msg-user';
+    userMsg.innerHTML = `<div class="bubble">${escapeHtml(query)}</div>`;
+    messagesEl.appendChild(userMsg);
+
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    scrollToBottom();
+
+    // アシスタントメッセージ領域を準備
+    const assistantMsg = document.createElement('div');
+    assistantMsg.className = 'msg msg-assistant';
+
+    const toolEventsEl = document.createElement('div');
+    toolEventsEl.className = 'tool-events';
+
+    const bubbleEl = document.createElement('div');
+    bubbleEl.className = 'bubble';
+
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'loading';
+    loadingEl.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div><span>調査・分析中...</span>';
+
+    assistantMsg.appendChild(toolEventsEl);
+    assistantMsg.appendChild(loadingEl);
+    assistantMsg.appendChild(bubbleEl);
+    messagesEl.appendChild(assistantMsg);
+    bubbleEl.style.display = 'none';
+    scrollToBottom();
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, sessionId }),
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let eventType = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7);
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              handleEvent(eventType, data, toolEventsEl, bubbleEl, loadingEl, assistantMsg);
+            } catch {}
+            eventType = '';
+          }
+        }
+        scrollToBottom();
+      }
+    } catch (error) {
+      loadingEl.remove();
+      bubbleEl.style.display = 'block';
+      bubbleEl.innerHTML = `<span style="color: var(--red)">エラーが発生しました: ${escapeHtml(error.message)}</span>`;
+    }
+
+    isProcessing = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+    scrollToBottom();
+  }
+
+  function handleEvent(type, data, toolEventsEl, bubbleEl, loadingEl, assistantMsg) {
+    switch (type) {
+      case 'thinking': {
+        let thinkEl = toolEventsEl.querySelector('.thinking');
+        if (!thinkEl) {
+          thinkEl = document.createElement('div');
+          thinkEl.className = 'thinking';
+          toolEventsEl.appendChild(thinkEl);
+        }
+        const text = data.message.length > 150 ? data.message.slice(0, 150) + '...' : data.message;
+        thinkEl.textContent = text;
+        break;
+      }
+      case 'tool_start': {
+        const el = document.createElement('div');
+        el.className = 'tool-event running';
+        el.dataset.tool = data.tool;
+        const argsStr = formatToolArgs(data.tool, data.args);
+        el.innerHTML = `<span class="tool-icon">⚡</span><span>${getToolNameJa(data.tool)}</span><span style="color:var(--text-muted)">${argsStr}</span>`;
+        toolEventsEl.appendChild(el);
+        break;
+      }
+      case 'tool_end': {
+        const els = toolEventsEl.querySelectorAll(`.tool-event.running[data-tool="${data.tool}"]`);
+        const el = els[els.length - 1];
+        if (el) {
+          el.className = 'tool-event done';
+          el.querySelector('.tool-icon').textContent = '✓';
+          if (data.duration) {
+            const secs = (data.duration / 1000).toFixed(1);
+            el.innerHTML += `<span style="color:var(--text-muted)">${secs}s</span>`;
+          }
+        }
+        break;
+      }
+      case 'tool_error': {
+        const els = toolEventsEl.querySelectorAll(`.tool-event.running[data-tool="${data.tool}"]`);
+        const el = els[els.length - 1];
+        if (el) {
+          el.className = 'tool-event error';
+          el.querySelector('.tool-icon').textContent = '✗';
+        }
+        break;
+      }
+      case 'done': {
+        loadingEl.remove();
+        bubbleEl.style.display = 'block';
+        bubbleEl.innerHTML = renderMarkdown(data.answer);
+
+        if (data.totalTime || data.iterations) {
+          const statsEl = document.createElement('div');
+          statsEl.className = 'stats';
+          const secs = data.totalTime ? (data.totalTime / 1000).toFixed(1) : '?';
+          statsEl.innerHTML = `<span>処理時間: ${secs}秒</span><span>ステップ: ${data.iterations ?? '?'}回</span>`;
+          if (data.tokenUsage) {
+            const total = (data.tokenUsage.totalTokens || 0).toLocaleString();
+            statsEl.innerHTML += `<span>トークン: ${total}</span>`;
+          }
+          bubbleEl.appendChild(statsEl);
+        }
+        break;
+      }
+      case 'error': {
+        loadingEl.remove();
+        bubbleEl.style.display = 'block';
+        bubbleEl.innerHTML = `<span style="color: var(--red)">エラーが発生しました: ${escapeHtml(data.message)}</span>`;
+        break;
+      }
+    }
+  }
+
+  const TOOL_NAMES_JA = {
+    'get_financials': '財務データ取得',
+    'get_market_data': '市場データ取得',
+    'stock_screener': '銘柄スクリーニング',
+    'read_filings': 'SEC提出書類読込',
+    'web_search': 'Web検索',
+    'web_fetch': 'Webページ取得',
+    'browser': 'ブラウザ操作',
+    'read_file': 'ファイル読込',
+    'write_file': 'ファイル書込',
+    'edit_file': 'ファイル編集',
+    'heartbeat': 'ハートビート',
+    'cron': 'スケジュール実行',
+    'memory_search': 'メモリ検索',
+    'memory_get': 'メモリ取得',
+    'memory_update': 'メモリ更新',
+    'skill': 'スキル実行',
+    'x_search': 'X(Twitter)検索',
+    'yahoo_quote': 'Yahoo株価取得',
+    'yahoo_chart': 'Yahoo履歴データ',
+    'yahoo_summary': 'Yahoo企業概要',
+    'av_global_quote': 'AV株価取得',
+    'av_company_overview': 'AV企業概要',
+    'finnhub_recommendation': 'アナリスト評価',
+    'finnhub_news': '企業ニュース',
+    'finnhub_quote': 'Finnhub株価',
+    'finnhub_earnings_calendar': '決算カレンダー',
+    'finnhub_profile': '企業プロフィール',
+    'finnhub_price_target': '目標株価',
+    'td_technicals': 'テクニカル指標',
+    'td_time_series': 'TD時系列データ',
+    'fmp_profile': 'FMP企業情報',
+    'fmp_income_statement': 'FMP損益計算書',
+    'fmp_screener': 'FMPスクリーナー',
+    'fmp_key_metrics': 'FMP財務指標',
+    'polygon_prev_close': 'Polygon前日終値',
+    'polygon_aggregates': 'Polygon集約データ',
+    'polygon_ticker_details': 'Polygon銘柄詳細',
+    'jp_financials': '🇯🇵 財務諸表',
+    'jp_company_info': '🇯🇵 企業情報',
+    'jp_analysis': '🇯🇵 AI分析',
+    'jp_earnings': '🇯🇵 決算短信',
+    'jp_filing_text': '🇯🇵 有報テキスト',
+    'jp_shareholders': '🇯🇵 大量保有',
+    'jp_screener': '🇯🇵 スクリーニング',
+    'jp_stock_price': '🇯🇵 株価(東証)',
+  };
+
+  function getToolNameJa(tool) {
+    return TOOL_NAMES_JA[tool] || tool;
+  }
+
+  function formatToolArgs(tool, args) {
+    if (!args) return '';
+    if (args.query) return `"${args.query.slice(0, 50)}${args.query.length > 50 ? '...' : ''}"`;
+    if (args.url) return args.url.slice(0, 60);
+    return '';
+  }
+
+  function escapeHtml(text) {
+    const el = document.createElement('span');
+    el.textContent = text;
+    return el.innerHTML;
+  }
+</script>
+
+</body>
+</html>

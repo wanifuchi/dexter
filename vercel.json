@@ -1,0 +1,16 @@
+{
+  "name": "finx",
+  "buildCommand": "npm install --prefer-offline",
+  "installCommand": "npm install",
+  "framework": null,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3",
+      "maxDuration": 300
+    }
+  },
+  "rewrites": [
+    { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/api/chat", "destination": "/api/chat" }
+  ]
+}
