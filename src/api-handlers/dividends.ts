@@ -32,8 +32,8 @@ async function fetchDividendData(ticker: string): Promise<{
   name: string | null;
 }> {
   try {
-    // 2年分のデータを取得（変動配当銘柄の年率換算精度を上げるため）
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=2y&interval=1mo&events=div`;
+    // 直近12ヶ月の配当実績を合算（年率換算しない。変動配当の過大/過少評価を防ぐ）
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1mo&events=div`;
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (!res.ok) return { dividendPerShare: null, dividendYield: null, exDividendDate: null, trailingAnnualDividendRate: null, currentPrice: null, name: null };
 
@@ -45,36 +45,16 @@ async function fetchDividendData(ticker: string): Promise<{
     const currentPrice = meta.regularMarketPrice ?? null;
     const name = meta.shortName ?? meta.symbol ?? null;
 
-    // 配当イベントから年間配当を計算
+    // 配当イベントから直近12ヶ月の配当合計を計算
     const dividendEvents = result.events?.dividends ?? {};
     const dividendValues = Object.values(dividendEvents) as any[];
 
-    // 方法: 直近の配当を時系列でソートし、最新4回分を合算して年率換算
-    // （PBRのような不定期変動配当に対応）
-    const sorted = [...dividendValues].sort((a: any, b: any) => b.date - a.date);
+    const oneYearAgo = Date.now() / 1000 - 365 * 24 * 60 * 60;
+    const recentDividends = dividendValues.filter((d: any) => d.date > oneYearAgo);
 
     let annualDividend = 0;
-    if (sorted.length >= 4) {
-      // 直近4回の合計
-      const last4 = sorted.slice(0, 4);
-      const last4Sum = last4.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
-      // 4回分の期間（日数）を計算して年率換算
-      const periodDays = (last4[0].date - last4[3].date) / (60 * 60 * 24);
-      if (periodDays > 0) {
-        annualDividend = last4Sum * (365 / periodDays);
-      } else {
-        annualDividend = last4Sum;
-      }
-    } else if (sorted.length > 0) {
-      // 4回未満なら全合計を期間で年率換算
-      const total = sorted.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
-      if (sorted.length >= 2) {
-        const periodDays = (sorted[0].date - sorted[sorted.length - 1].date) / (60 * 60 * 24);
-        annualDividend = periodDays > 0 ? total * (365 / periodDays) : total;
-      } else {
-        // 1回のみ → 年4回と仮定
-        annualDividend = total * 4;
-      }
+    for (const d of recentDividends) {
+      annualDividend += d.amount ?? 0;
     }
 
     // 最新の配当日
