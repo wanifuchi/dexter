@@ -8,7 +8,7 @@ import type { Strategy, Trade, PriceHistory, StrategyState, BacktestConfig } fro
 export const momentumRebalance: Strategy = {
   id: 'momentum-rebalance',
   name: 'モメンタムリバランス',
-  description: '過去N日の上昇率上位K銘柄に毎月リバランス。トレンドフォロー型戦略。',
+  description: '過去N日の上昇率が高い上位K銘柄に毎月入替。「勝ち馬に乗る」トレンドフォロー型。ヘッジファンドで広く使われる手法。',
   paramDefs: [
     {
       key: 'lookbackDays',

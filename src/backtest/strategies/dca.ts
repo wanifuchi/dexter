@@ -7,7 +7,7 @@ import type { Strategy, Trade, PriceHistory, StrategyState, BacktestConfig } fro
 export const dca: Strategy = {
   id: 'dca',
   name: 'ドルコスト平均法',
-  description: '毎月定額を均等配分で買付。時間分散によりリスクを軽減。',
+  description: '毎月定額を均等配分で買付する積立投資。高値で少なく、安値で多く買うため平均取得単価が下がりやすい。長期投資の王道。',
   paramDefs: [
     {
       key: 'buyDay',

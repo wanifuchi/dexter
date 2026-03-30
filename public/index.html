@@ -1216,7 +1216,7 @@
       const data = await res.json();
       btStrategies = data.strategies || [];
       const sel = document.getElementById('bt-strategy');
-      sel.innerHTML = btStrategies.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      sel.innerHTML = btStrategies.map(s => `<option value="${s.id}" title="${s.description}">${s.name}</option>`).join('');
       sel.addEventListener('change', renderBtParams);
       renderBtParams();
       btInitialized = true;

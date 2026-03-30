@@ -7,7 +7,7 @@ import type { Strategy, Trade, PriceHistory, StrategyState, BacktestConfig } fro
 export const buyAndHold: Strategy = {
   id: 'buy-and-hold',
   name: 'バイ&ホールド',
-  description: '初日に全銘柄を均等配分で購入し、そのまま保持する基本戦略。',
+  description: '初日に全銘柄を均等配分で購入し、そのまま保持する最もシンプルな戦略。売買コスト最小。他の戦略のベンチマークとして有用。',
   paramDefs: [],
 
   execute(date, prices, state, config) {
