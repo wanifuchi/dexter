@@ -616,7 +616,7 @@
         <div class="suggestion" onclick="sendSuggestion(this)">NVDAとAMDを財務・テクニカル・将来性で比較して</div>
         <div class="suggestion" onclick="sendSuggestion(this)">バフェットが好みそうな米国株を5つ教えて</div>
         <div class="suggestion" onclick="sendSuggestion(this)">配当利回り5%以上で10年連続増配の銘柄をスクリーニング</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">今のポートフォリオのリスク分析と改善提案をして</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">金利が0.5%上がったら今のポートフォリオはどうなる？シナリオ分析して</div>
       </div>
     </div>
   </div>
@@ -800,6 +800,19 @@
             <tbody id="watchlist-body"></tbody>
           </table>
         </div>
+        <div class="section-title">通知設定</div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:20px;font-size:13px">
+          <div style="display:flex;flex-direction:column;gap:10px" id="notification-settings">
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>株価アラート（5分間隔）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>ニュースアラート（1時間間隔）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>決算日リマインダー（毎朝）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>経済指標アラート（毎朝）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>週次レポート（毎週土曜）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+            <label style="display:flex;justify-content:space-between;align-items:center"><span>日次スナップショット（毎日）</span><input type="checkbox" checked disabled title="GitHub Actionsで自動実行"></label>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px">通知はLINE経由で配信されます。ON/OFFはGitHub Actionsのワークフローで管理しています。</div>
+        </div>
+
         <div class="section-title">アラートルール</div>
         <div class="alerts-list" id="alerts-list"></div>
       </div>
@@ -1466,6 +1479,45 @@
   }
 
   // --- 銘柄詳細（チャットで分析） ---
+  // --- ミニチャート ---
+  async function toggleMiniChart(el, ticker) {
+    const row = el.closest('tr');
+    const existing = row.nextElementSibling;
+    if (existing && existing.classList.contains('mini-chart-row')) {
+      existing.remove();
+      return;
+    }
+    // チャート行を挿入
+    const chartRow = document.createElement('tr');
+    chartRow.className = 'mini-chart-row';
+    chartRow.innerHTML = `<td colspan="9" style="padding:8px 10px;background:var(--bg-input)"><div style="display:flex;gap:12px;align-items:center"><svg id="mc-${ticker}" width="200" height="40"></svg><span style="font-size:11px;color:var(--text-muted)" id="mc-info-${ticker}">読み込み中...</span><a style="cursor:pointer;font-size:11px;color:var(--accent)" onclick="analyzeStock('${ticker}')">詳細分析→</a></div></td>`;
+    row.after(chartRow);
+
+    try {
+      const symbol = /^\d{4}$/.test(ticker) ? ticker + '.T' : ticker;
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const json = await res.json();
+      const closes = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(c => c !== null);
+      if (closes.length < 2) { document.getElementById('mc-info-' + ticker).textContent = 'データ不足'; return; }
+
+      const W = 200, H = 40, pad = 2;
+      const min = Math.min(...closes), max = Math.max(...closes);
+      const range = max - min || 1;
+      const points = closes.map((c, i) => {
+        const x = pad + (i / (closes.length - 1)) * (W - pad * 2);
+        const y = pad + (1 - (c - min) / range) * (H - pad * 2);
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+
+      const color = closes[closes.length - 1] >= closes[0] ? '#16a34a' : '#dc2626';
+      const changePct = ((closes[closes.length - 1] - closes[0]) / closes[0] * 100).toFixed(1);
+      document.getElementById('mc-' + ticker).innerHTML = `<path d="${points}" fill="none" stroke="${color}" stroke-width="1.5"/>`;
+      document.getElementById('mc-info-' + ticker).innerHTML = `1ヶ月: <span class="${parseFloat(changePct) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${changePct}%</span> (${closes.length}日)`;
+    } catch {
+      document.getElementById('mc-info-' + ticker).textContent = '取得失敗';
+    }
+  }
+
   function newConversation() {
     sessionId = 'web-' + Date.now().toString(36);
     localStorage.setItem('finx_session_id', sessionId);
@@ -2142,7 +2194,7 @@
         smaHtml = `<span class="${pnlClass(diff)}">${fmtPct(diff)}</span>`;
       }
       return `<tr>
-        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="analyzeStock('${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
+        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="toggleMiniChart(this,'${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
         <td>${price}</td>
         <td>${pnlPct}</td>
         <td>${day}</td>
