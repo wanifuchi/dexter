@@ -13,6 +13,7 @@ import {
   toggleAlertRule,
 } from './alert-store.js';
 import { loadWatchlist, addToWatchlist, removeFromWatchlist } from './watchlist-store.js';
+import { addLearningEntry, updateInvestmentStyle, loadLearning } from './learning-engine.js';
 import { sendMessageLine, isLineAvailable } from '../../gateway/channels/line/index.js';
 import type { AccountType, AlertCondition, NotificationChannel } from './types.js';
 
@@ -232,3 +233,64 @@ export const watchlistManager = new DynamicStructuredTool({
 export const WATCHLIST_MANAGER_DESCRIPTION = `ウォッチリスト（監視銘柄）の管理。
 保有していないが気になる銘柄を登録・削除・一覧表示。
 例: 「TSLAをウォッチリストに追加して」「ウォッチリスト見せて」`;
+
+// ---------- 学習エンジン ----------
+
+export const learningTool = new DynamicStructuredTool({
+  name: 'learning_engine',
+  description: `ユーザーの投資スタイル・フィードバック・教訓を記録する学習ツール。
+ユーザーが投資判断についてフィードバックを与えた時、好みを表明した時、
+失敗や成功から得た教訓を共有した時に自動的に呼び出す。`,
+  schema: z.object({
+    action: z.enum(['record', 'update_style', 'view']).describe('操作'),
+    type: z.enum(['preference', 'feedback', 'lesson', 'style', 'bias_alert']).optional().describe('記録タイプ'),
+    content: z.string().optional().describe('学習内容'),
+    context: z.string().optional().describe('文脈'),
+    // update_style用
+    riskTolerance: z.enum(['conservative', 'moderate', 'aggressive']).optional(),
+    timeHorizon: z.enum(['short', 'medium', 'long']).optional(),
+    preferredSectors: z.array(z.string()).optional(),
+    avoidSectors: z.array(z.string()).optional(),
+    preferredStrategies: z.array(z.string()).optional(),
+    note: z.string().optional(),
+  }),
+  func: async (input) => {
+    switch (input.action) {
+      case 'record': {
+        if (!input.content || !input.type) return formatToolResult({ error: 'typeとcontentは必須' });
+        await addLearningEntry({ type: input.type, content: input.content, context: input.context });
+        return formatToolResult({ message: '学習データを記録しました', content: input.content });
+      }
+      case 'update_style': {
+        const updates: any = {};
+        if (input.riskTolerance) updates.riskTolerance = input.riskTolerance;
+        if (input.timeHorizon) updates.timeHorizon = input.timeHorizon;
+        if (input.preferredSectors) updates.preferredSectors = input.preferredSectors;
+        if (input.avoidSectors) updates.avoidSectors = input.avoidSectors;
+        if (input.preferredStrategies) updates.preferredStrategies = input.preferredStrategies;
+        if (input.note) {
+          const store = await loadLearning();
+          updates.notes = [...store.investmentStyle.notes, input.note];
+        }
+        await updateInvestmentStyle(updates);
+        return formatToolResult({ message: '投資スタイルを更新しました' });
+      }
+      case 'view': {
+        const store = await loadLearning();
+        return formatToolResult({
+          entryCount: store.entries.length,
+          investmentStyle: store.investmentStyle,
+          recentEntries: store.entries.slice(-10),
+        });
+      }
+    }
+  },
+});
+
+export const LEARNING_ENGINE_DESCRIPTION = `ユーザーの投資スタイルとフィードバックを学習・記録するツール。
+以下の場面で自動的に使用する:
+- ユーザーが「この分析は良かった/悪かった」とフィードバックした時 → record(feedback)
+- ユーザーが投資の好みを表明した時（例: 「高配当が好き」「テック重視」）→ record(preference) or update_style
+- 投資判断の失敗/成功から得た教訓 → record(lesson)
+- ユーザーが認知バイアスに陥っている可能性がある時 → record(bias_alert)
+学習データは次回以降の対話で自動的に参照され、ユーザーに最適化された提案に活かされる。`;

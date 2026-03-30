@@ -68,6 +68,13 @@ export class Agent {
       }
     }
 
+    // 学習データ（ユーザー適応）を読み込み
+    let learningContext = '';
+    try {
+      const { buildLearningContext } = await import('../tools/trading/learning-engine.js');
+      learningContext = await buildLearningContext();
+    } catch {}
+
     const systemPrompt = buildSystemPrompt(
       model,
       soulContent,
@@ -75,6 +82,7 @@ export class Agent {
       config.groupContext,
       memoryFiles,
       memoryContext,
+      learningContext,
     );
     return new Agent(config, tools, systemPrompt);
   }

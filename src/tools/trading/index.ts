@@ -7,6 +7,8 @@ export {
   SEND_NOTIFICATION_DESCRIPTION,
   watchlistManager,
   WATCHLIST_MANAGER_DESCRIPTION,
+  learningTool,
+  LEARNING_ENGINE_DESCRIPTION,
 } from './trading-tools.js';
 
 export {

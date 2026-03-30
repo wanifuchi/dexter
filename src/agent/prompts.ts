@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getChannelProfile } from './channels.js';
 import { dexterPath } from '../utils/paths.js';
+import { INVESTMENT_WISDOM } from './investment-wisdom.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -206,6 +207,7 @@ export function buildSystemPrompt(
   groupContext?: GroupContext,
   memoryFiles?: string[],
   memoryContext?: string | null,
+  learningContext?: string | null,
 ): string {
   const toolDescriptions = buildToolDescriptions(model);
   const profile = getChannelProfile(channel);
@@ -252,6 +254,8 @@ The heartbeat reads .dexter/HEARTBEAT.md to know what to check.
 Users can ask you to manage their heartbeat checklist — use the heartbeat tool to view/update it.
 Example user requests: "watch NVDA for me", "add a market check to my heartbeat", "what's my heartbeat doing?"
 
+${INVESTMENT_WISDOM}
+
 ## Conversation Context
 
 CRITICAL: When chat history is provided, you MUST read and reference it before responding.
@@ -273,7 +277,7 @@ Embody the identity and investing philosophy described above. Let it shape your 
 
 ## Response Format
 
-${formatBullets}${tablesSection}${groupContext ? '\n\n' + buildGroupSection(groupContext) : ''}`;
+${formatBullets}${tablesSection}${groupContext ? '\n\n' + buildGroupSection(groupContext) : ''}${learningContext ? '\n\n' + learningContext : ''}`;
 }
 
 // ============================================================================
