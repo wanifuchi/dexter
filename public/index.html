@@ -767,6 +767,12 @@
 
       <!-- 管理タブ -->
       <div class="pf-tab-content" id="pftab-manage">
+        <div class="section-title">目標進捗</div>
+        <div id="goals-section" style="margin-bottom:20px"></div>
+
+        <div class="section-title">税金シミュレーター</div>
+        <div id="tax-section" style="margin-bottom:20px"></div>
+
         <div class="section-title">リバランス提案</div>
         <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
         <div class="section-title">ウォッチリスト</div>
@@ -1917,6 +1923,77 @@
     el.innerHTML = `<div class="account-cards" style="flex-wrap:wrap">${cards}</div>`;
   }
 
+  // --- 税金シミュレーター + 目標設定 ---
+  function renderTaxGoals(data, divData) {
+    const t = data.tax;
+    const g = data.goals;
+    const p = data.progress;
+    const rate = data.usdJpy;
+
+    // 配当の税金推定
+    const annualDivPre = divData?.summary?.totalAnnualDividend ?? 0;
+    const annualDivPost = divData?.summary?.totalAnnualDividendAfterTax ?? 0;
+    const divTaxJpy = (annualDivPre - annualDivPost) * rate;
+
+    // 目標進捗
+    const assetPct = Math.min(100, p.assetProgress);
+    const divCurrent = (divData?.summary?.totalAnnualDividendAfterTaxJpy ?? 0);
+    const divPct = g.dividendTarget > 0 ? Math.min(100, (divCurrent / g.dividendTarget) * 100) : 0;
+
+    document.getElementById('goals-section').innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span>資産目標: ¥${(g.assetTarget/10000).toFixed(0)}万</span>
+            <span style="font-weight:600">${assetPct.toFixed(1)}%</span>
+          </div>
+          <div style="background:var(--border-light);border-radius:4px;height:20px;overflow:hidden">
+            <div style="width:${assetPct}%;background:var(--accent);height:100%;border-radius:4px;transition:width 0.5s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">現在 ¥${Math.round(p.currentAssetJpy).toLocaleString()} / 残り ¥${Math.round(p.assetRemaining).toLocaleString()}</div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span>配当目標: ¥${(g.dividendTarget/10000).toFixed(0)}万/年</span>
+            <span style="font-weight:600">${divPct.toFixed(1)}%</span>
+          </div>
+          <div style="background:var(--border-light);border-radius:4px;height:20px;overflow:hidden">
+            <div style="width:${divPct}%;background:var(--green);height:100%;border-radius:4px;transition:width 0.5s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">現在 ¥${Math.round(divCurrent).toLocaleString()}/年（税後）</div>
+        </div>
+      </div>`;
+
+    // 税金シミュレーター
+    const totalTax = t.capitalGainsTaxJpy + divTaxJpy;
+    document.getElementById('tax-section').innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div class="summary-cards" style="margin-bottom:12px">
+          <div class="summary-card">
+            <div class="label">譲渡益税（特定口座）</div>
+            <div class="value pnl-neg">¥${Math.round(t.capitalGainsTaxJpy).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted)">含み益 ${fmtUsd(t.tokuteiGainUsd)} × 20.315%</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">NISA節税額</div>
+            <div class="value pnl-pos">¥${Math.round(t.nisaExemptJpy).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted)">非課税で浮いた税金</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">配当課税（年間推定）</div>
+            <div class="value pnl-neg">¥${Math.round(divTaxJpy).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted)">米国源泉10% + 国内20.315%</div>
+          </div>
+          <div class="summary-card">
+            <div class="label">確定申告時の税額合計</div>
+            <div class="value pnl-neg">¥${Math.round(totalTax).toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text-muted)">全ポジション利確想定</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">※ 特定口座（源泉徴収あり）は確定申告不要。NISA口座は非課税。上記は全ポジションを今利確した場合の概算です。</div>
+      </div>`;
+  }
+
   // --- リバランス提案 ---
   function renderRebalance(suggestions) {
     const el = document.getElementById('rebalance-suggestions');
@@ -2191,10 +2268,11 @@
     content.style.display = 'none';
 
     try {
-      const [portfolioRes, dividendRes, watchlistRes] = await Promise.all([
+      const [portfolioRes, dividendRes, watchlistRes, taxGoalsRes] = await Promise.all([
         fetch('/api/portfolio'),
         fetch('/api/dividends'),
         fetch('/api/watchlist'),
+        fetch('/api/tax-goals'),
       ]);
       const data = await portfolioRes.json();
       if (data.error) throw new Error(data.error);
@@ -2208,6 +2286,9 @@
 
       const wlData = await watchlistRes.json();
       if (!wlData.error) renderWatchlist(wlData);
+
+      const tgData = await taxGoalsRes.json();
+      if (!tgData.error) renderTaxGoals(tgData, divData);
 
       // チャートは非同期で読み込み（メインデータの表示をブロックしない）
       loadChart();

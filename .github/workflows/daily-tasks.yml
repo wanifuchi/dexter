@@ -1,0 +1,38 @@
+name: Daily Tasks
+
+on:
+  schedule:
+    # 毎朝 UTC 0:00 (JST 9:00) — 経済指標チェック
+    - cron: '0 0 * * 1-5'
+    # 毎週土曜 UTC 21:00 (JST 日曜6:00) — 週次レポート
+    - cron: '0 21 * * 6'
+  workflow_dispatch:
+
+jobs:
+  economic-alerts:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 * * 1-5' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 2
+    steps:
+      - name: Check economic indicators
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/economic-alerts" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}
+
+  weekly-report:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 21 * * 6' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 2
+    steps:
+      - name: Send weekly report
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/weekly-report" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}

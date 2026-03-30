@@ -18,6 +18,7 @@
     { "source": "/api/dividends", "destination": "/api/data?type=dividends" },
     { "source": "/api/watchlist", "destination": "/api/data?type=watchlist" },
     { "source": "/api/snapshots", "destination": "/api/data?type=snapshots" },
+    { "source": "/api/tax-goals", "destination": "/api/data?type=tax-goals" },
     { "source": "/api/backtest", "destination": "/api/backtest" },
     { "source": "/api/paper-trade", "destination": "/api/paper-trade" },
     { "source": "/api/line-webhook", "destination": "/api/line-webhook" },
@@ -25,7 +26,9 @@
     { "source": "/api/cron/scan-alerts", "destination": "/api/cron?job=scan-alerts" },
     { "source": "/api/cron/snapshot", "destination": "/api/cron?job=snapshot" },
     { "source": "/api/cron/news-alerts", "destination": "/api/cron?job=news-alerts" },
-    { "source": "/api/cron/auto-strategy", "destination": "/api/cron?job=auto-strategy" }
+    { "source": "/api/cron/auto-strategy", "destination": "/api/cron?job=auto-strategy" },
+    { "source": "/api/cron/economic-alerts", "destination": "/api/cron?job=economic-alerts" },
+    { "source": "/api/cron/weekly-report", "destination": "/api/cron?job=weekly-report" }
   ],
   "crons": [
     {

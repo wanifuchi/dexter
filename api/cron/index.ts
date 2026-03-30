@@ -34,6 +34,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const mod = await import('../../src/api-handlers/auto-strategy.js');
       return mod.default(req, res);
     }
+    case 'economic-alerts': {
+      const mod = await import('../../src/api-handlers/economic-alerts.js');
+      return mod.default(req, res);
+    }
+    case 'weekly-report': {
+      const mod = await import('../../src/api-handlers/weekly-report.js');
+      return mod.default(req, res);
+    }
     default:
       return res.status(400).json({ error: `Unknown job: ${job}` });
   }
