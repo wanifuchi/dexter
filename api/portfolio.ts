@@ -13,21 +13,43 @@ interface PriceData {
   price: number | null;
   previousClose: number | null;
   name: string | null;
+  rsi14: number | null;
+  sma50: number | null;
+}
+
+function calcRSI(closes: number[], period: number): number | null {
+  if (closes.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gains += diff; else losses -= diff;
+  }
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = (gains / period) / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+function calcSMA(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return slice.reduce((s, v) => s + v, 0) / period;
 }
 
 async function fetchPrice(ticker: string): Promise<PriceData> {
+  const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null };
   try {
     const symbol = /^\d{4}$/.test(ticker) ? `${ticker}.T` : ticker;
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2d&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`;
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!res.ok) return { ticker, price: null, previousClose: null, name: null };
+    if (!res.ok) return empty;
 
     const json = await res.json() as any;
     const result = json?.chart?.result?.[0];
-    if (!result) return { ticker, price: null, previousClose: null, name: null };
+    if (!result) return empty;
 
     const meta = result.meta ?? {};
-    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    const closes: number[] = (result.indicators?.quote?.[0]?.close ?? []).filter((c: any) => c !== null);
     const price = meta.regularMarketPrice ?? closes[closes.length - 1];
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
 
@@ -36,9 +58,11 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
       price: typeof price === 'number' ? price : null,
       previousClose: typeof previousClose === 'number' ? previousClose : null,
       name: meta.shortName ?? meta.symbol ?? null,
+      rsi14: calcRSI(closes, 14),
+      sma50: calcSMA(closes, 50),
     };
   } catch {
-    return { ticker, price: null, previousClose: null, name: null };
+    return empty;
   }
 }
 
@@ -104,6 +128,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         pnl,
         pnlPct,
         dayChange,
+        rsi14: pd?.rsi14 ?? null,
+        sma50: pd?.sma50 ?? null,
       };
     });
 

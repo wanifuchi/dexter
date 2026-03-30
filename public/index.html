@@ -612,6 +612,8 @@
               <th>損益</th>
               <th>損益率</th>
               <th>日次</th>
+              <th>RSI</th>
+              <th>vs 50MA</th>
               <th>口座</th>
             </tr>
           </thead>
@@ -1588,6 +1590,18 @@
       const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span></span>` : '-';
       const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
       const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
+      // RSI: 30以下=売られすぎ(緑), 70以上=買われすぎ(赤)
+      let rsiHtml = '-';
+      if (p.rsi14 !== null) {
+        const rsiColor = p.rsi14 <= 30 ? 'pnl-pos' : p.rsi14 >= 70 ? 'pnl-neg' : '';
+        rsiHtml = `<span class="${rsiColor}" title="RSI(14)">${p.rsi14.toFixed(0)}</span>`;
+      }
+      // vs 50MA: 現在値と50日移動平均の乖離率
+      let smaHtml = '-';
+      if (p.sma50 !== null && p.currentPrice !== null) {
+        const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
+        smaHtml = `<span class="${pnlClass(diff)}" title="50日MA: ${fmtUsd(p.sma50)}">${fmtPct(diff)}</span>`;
+      }
       return `<tr>
         <td><strong>${p.ticker}</strong></td>
         <td>${escapeHtml(p.name)}</td>
@@ -1598,6 +1612,8 @@
         <td>${pnl}</td>
         <td>${pnlPct}</td>
         <td>${day}</td>
+        <td>${rsiHtml}</td>
+        <td>${smaHtml}</td>
         <td>${accountLabels[p.account] || p.account}</td>
       </tr>`;
     }).join('');
