@@ -21,3 +21,21 @@ jobs:
             | jq .
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
+
+  news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check news alerts (every ~1h via minute filter)
+        run: |
+          MINUTE=$(date -u +%M)
+          if [ "$MINUTE" -lt "5" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            curl -s -X GET \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              "${{ secrets.FINX_URL }}/api/cron/news-alerts" \
+              | jq .
+          else
+            echo "Skipping news check (runs only at :00-:04 each hour)"
+          fi
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}
