@@ -20,14 +20,21 @@ export interface TickerSnapshot {
 /**
  * アラートルールを評価し、条件を満たすシグナルを返す
  */
+// 同じルールの再通知を防ぐクールダウン（24時間）
+const ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 export async function evaluateAlertRules(
   rules: AlertRule[],
   snapshots: Map<string, TickerSnapshot>,
 ): Promise<Signal[]> {
   const signals: Signal[] = [];
+  const now = Date.now();
 
   for (const rule of rules) {
     if (!rule.enabled) continue;
+
+    // クールダウン中はスキップ
+    if (rule.lastTriggeredAt && (now - rule.lastTriggeredAt) < ALERT_COOLDOWN_MS) continue;
 
     const snap = snapshots.get(rule.ticker);
     if (!snap) continue;
@@ -43,7 +50,9 @@ export async function evaluateAlertRules(
 }
 
 /**
- * ポートフォリオ内の銘柄に対して基本的な異常検出を行う
+ * ポートフォリオ内の銘柄に対して基本的な異常検出を行う。
+ * 注意: アラートルールが設定済みなら、そちらが優先。
+ * この関数は「日次変動率」のみチェック（取得単価からの乖離は常時発火するため除外）。
  */
 export function evaluatePortfolioSignals(
   positions: Position[],
@@ -53,31 +62,31 @@ export function evaluatePortfolioSignals(
 
   for (const pos of positions) {
     const snap = snapshots.get(pos.ticker);
-    if (!snap?.price) continue;
+    if (!snap?.price || !snap?.previousClose) continue;
 
-    // 取得単価からの下落率チェック（-10%以上の下落）
-    const changePct = ((snap.price - pos.avgCost) / pos.avgCost) * 100;
-    if (changePct <= -10) {
+    // 日次変動率が±8%を超えた場合のみ通知（異常な1日の動き）
+    const dayChangePct = ((snap.price - snap.previousClose) / snap.previousClose) * 100;
+
+    if (dayChangePct <= -8) {
       signals.push({
         ticker: pos.ticker,
         name: pos.name,
         type: 'change_pct_below',
-        currentValue: changePct,
-        threshold: -10,
-        message: `${pos.name}(${pos.ticker}) が取得単価から ${changePct.toFixed(1)}% 下落中（現在値: ${snap.price}, 取得単価: ${pos.avgCost}）`,
+        currentValue: dayChangePct,
+        threshold: -8,
+        message: `${pos.name}(${pos.ticker}) が本日 ${dayChangePct.toFixed(1)}% 急落（現在値: $${snap.price}, 前日終値: $${snap.previousClose}）`,
         triggeredAt: Date.now(),
       });
     }
 
-    // 取得単価からの上昇率チェック（+20%以上の上昇）
-    if (changePct >= 20) {
+    if (dayChangePct >= 8) {
       signals.push({
         ticker: pos.ticker,
         name: pos.name,
         type: 'change_pct_above',
-        currentValue: changePct,
-        threshold: 20,
-        message: `${pos.name}(${pos.ticker}) が取得単価から ${changePct.toFixed(1)}% 上昇中（現在値: ${snap.price}, 取得単価: ${pos.avgCost}）`,
+        currentValue: dayChangePct,
+        threshold: 8,
+        message: `${pos.name}(${pos.ticker}) が本日 ${dayChangePct.toFixed(1)}% 急騰（現在値: $${snap.price}, 前日終値: $${snap.previousClose}）`,
         triggeredAt: Date.now(),
       });
     }
