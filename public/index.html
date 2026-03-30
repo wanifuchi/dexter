@@ -644,6 +644,13 @@
           <tbody id="dividend-body"></tbody>
         </table>
       </div>
+      <div class="section-title">ウォッチリスト</div>
+      <div class="positions-table-wrap" style="margin-bottom:20px">
+        <table class="positions-table">
+          <thead><tr><th>銘柄</th><th>名称</th><th>現在値</th><th>日次</th><th>メモ</th></tr></thead>
+          <tbody id="watchlist-body"></tbody>
+        </table>
+      </div>
       <div class="section-title">アラートルール</div>
       <div class="alerts-list" id="alerts-list"></div>
     </div>
@@ -1408,6 +1415,27 @@
     `;
   }
 
+  // --- ウォッチリスト ---
+  function renderWatchlist(data) {
+    const body = document.getElementById('watchlist-body');
+    if (!data.items || data.items.length === 0) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px">ウォッチリストは空です。チャットで「TSLAをウォッチリストに追加して」と話しかけてください。</td></tr>';
+      return;
+    }
+    body.innerHTML = data.items.map(item => {
+      const price = item.currentPrice !== null ? fmtUsd(item.currentPrice) : '-';
+      const day = item.dayChange !== null ? `<span class="${pnlClass(item.dayChange)}">${fmtPct(item.dayChange)}</span>` : '-';
+      const name = item.yahooName || item.name;
+      return `<tr>
+        <td><strong>${item.ticker}</strong></td>
+        <td>${escapeHtml(name)}</td>
+        <td>${price}</td>
+        <td>${day}</td>
+        <td style="font-size:11px;color:var(--text-muted)">${item.note ? escapeHtml(item.note) : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
   // --- 配当トラッカー ---
   function renderDividends(data) {
     const s = data.summary;
@@ -1486,9 +1514,10 @@
     content.style.display = 'none';
 
     try {
-      const [portfolioRes, dividendRes] = await Promise.all([
+      const [portfolioRes, dividendRes, watchlistRes] = await Promise.all([
         fetch('/api/portfolio'),
         fetch('/api/dividends'),
+        fetch('/api/watchlist'),
       ]);
       const data = await portfolioRes.json();
       if (data.error) throw new Error(data.error);
@@ -1496,6 +1525,9 @@
 
       const divData = await dividendRes.json();
       if (!divData.error) renderDividends(divData);
+
+      const wlData = await watchlistRes.json();
+      if (!wlData.error) renderWatchlist(wlData);
 
       // チャートは非同期で読み込み（メインデータの表示をブロックしない）
       loadChart();

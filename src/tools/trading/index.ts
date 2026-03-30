@@ -5,6 +5,8 @@ export {
   ALERT_MANAGER_DESCRIPTION,
   sendNotification,
   SEND_NOTIFICATION_DESCRIPTION,
+  watchlistManager,
+  WATCHLIST_MANAGER_DESCRIPTION,
 } from './trading-tools.js';
 
 export {

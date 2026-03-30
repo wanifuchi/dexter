@@ -12,6 +12,7 @@ import {
   removeAlertRule,
   toggleAlertRule,
 } from './alert-store.js';
+import { loadWatchlist, addToWatchlist, removeFromWatchlist } from './watchlist-store.js';
 import { sendMessageLine, isLineAvailable } from '../../gateway/channels/line/index.js';
 import type { AccountType, AlertCondition, NotificationChannel } from './types.js';
 
@@ -188,3 +189,46 @@ export const sendNotification = new DynamicStructuredTool({
 export const SEND_NOTIFICATION_DESCRIPTION = `WhatsAppやLINEにメッセージを送信。
 シグナル検出結果やアラート通知をユーザーに配信する際に使用。
 channel: 'whatsapp', 'line', 'both' を指定可能。`;
+
+// ---------- ウォッチリスト管理 ----------
+
+export const watchlistManager = new DynamicStructuredTool({
+  name: 'watchlist_manager',
+  description: `ウォッチリスト（監視銘柄）の追加・削除・一覧表示。
+保有していないが監視したい銘柄を管理する。`,
+  schema: z.object({
+    action: z.enum(['list', 'add', 'remove']).describe('操作種別'),
+    ticker: z.string().optional().describe('銘柄コード'),
+    name: z.string().optional().describe('銘柄名'),
+    note: z.string().optional().describe('メモ（監視理由など）'),
+  }),
+  func: async (input) => {
+    switch (input.action) {
+      case 'list': {
+        const wl = await loadWatchlist();
+        return formatToolResult({
+          itemCount: wl.items.length,
+          items: wl.items,
+        });
+      }
+      case 'add': {
+        if (!input.ticker) return formatToolResult({ error: 'tickerは必須です' });
+        const wl = await addToWatchlist({
+          ticker: input.ticker,
+          name: input.name ?? input.ticker,
+          note: input.note,
+        });
+        return formatToolResult({ message: `${input.ticker}をウォッチリストに追加しました`, itemCount: wl.items.length });
+      }
+      case 'remove': {
+        if (!input.ticker) return formatToolResult({ error: 'tickerは必須です' });
+        const wl = await removeFromWatchlist(input.ticker);
+        return formatToolResult({ message: `${input.ticker}をウォッチリストから削除しました`, itemCount: wl.items.length });
+      }
+    }
+  },
+});
+
+export const WATCHLIST_MANAGER_DESCRIPTION = `ウォッチリスト（監視銘柄）の管理。
+保有していないが気になる銘柄を登録・削除・一覧表示。
+例: 「TSLAをウォッチリストに追加して」「ウォッチリスト見せて」`;
