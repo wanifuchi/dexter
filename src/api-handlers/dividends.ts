@@ -67,7 +67,7 @@ async function fetchDividendData(ticker: string): Promise<{
       : null;
 
     return {
-      dividendPerShare: lastDividendAmount,
+      dividendPerShare: annualDividend > 0 ? annualDividend : lastDividendAmount,
       dividendYield,
       exDividendDate,
       trailingAnnualDividendRate: annualDividend > 0 ? annualDividend : null,
