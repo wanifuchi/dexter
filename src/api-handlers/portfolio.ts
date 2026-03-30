@@ -15,6 +15,7 @@ interface PriceData {
   name: string | null;
   rsi14: number | null;
   sma50: number | null;
+  dailyCloses: number[]; // 相関計算用
 }
 
 function calcRSI(closes: number[], period: number): number | null {
@@ -37,7 +38,7 @@ function calcSMA(closes: number[], period: number): number | null {
 }
 
 async function fetchPrice(ticker: string): Promise<PriceData> {
-  const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null };
+  const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null, dailyCloses: [] };
   try {
     const symbol = /^\d{4}$/.test(ticker) ? `${ticker}.T` : ticker;
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`;
@@ -60,10 +61,63 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
       name: meta.shortName ?? meta.symbol ?? null,
       rsi14: calcRSI(closes, 14),
       sma50: calcSMA(closes, 50),
+      dailyCloses: closes,
     };
   } catch {
     return empty;
   }
+}
+
+function computeCorrelation(
+  tickers: string[],
+  priceMap: Map<string, PriceData>,
+): { tickers: string[]; matrix: number[][] } {
+  // 日次リターンを計算
+  const returns: Map<string, number[]> = new Map();
+  for (const ticker of tickers) {
+    const pd = priceMap.get(ticker);
+    if (!pd?.dailyCloses || pd.dailyCloses.length < 10) continue;
+    const closes = pd.dailyCloses;
+    const ret: number[] = [];
+    for (let i = 1; i < closes.length; i++) {
+      if (closes[i - 1] > 0) ret.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+    }
+    returns.set(ticker, ret);
+  }
+
+  const validTickers = tickers.filter(t => returns.has(t));
+  // ユニーク化
+  const uniqueTickers = [...new Set(validTickers)];
+  const n = uniqueTickers.length;
+  const matrix: number[][] = [];
+
+  for (let i = 0; i < n; i++) {
+    const row: number[] = [];
+    const a = returns.get(uniqueTickers[i])!;
+    for (let j = 0; j < n; j++) {
+      if (i === j) { row.push(1); continue; }
+      const b = returns.get(uniqueTickers[j])!;
+      const len = Math.min(a.length, b.length);
+      if (len < 5) { row.push(0); continue; }
+      const sliceA = a.slice(-len);
+      const sliceB = b.slice(-len);
+      const meanA = sliceA.reduce((s, v) => s + v, 0) / len;
+      const meanB = sliceB.reduce((s, v) => s + v, 0) / len;
+      let cov = 0, varA = 0, varB = 0;
+      for (let k = 0; k < len; k++) {
+        const da = sliceA[k] - meanA;
+        const db = sliceB[k] - meanB;
+        cov += da * db;
+        varA += da * da;
+        varB += db * db;
+      }
+      const denom = Math.sqrt(varA * varB);
+      row.push(denom > 0 ? cov / denom : 0);
+    }
+    matrix.push(row);
+  }
+
+  return { tickers: uniqueTickers, matrix };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -196,6 +250,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       accountSummary,
       attribution,
       rebalanceSuggestions,
+      correlation: computeCorrelation(tickers, priceMap),
       usdJpy,
       updatedAt: Date.now(),
     });

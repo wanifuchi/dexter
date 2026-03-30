@@ -694,6 +694,9 @@
       <div class="section-title">リバランス提案</div>
       <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
 
+      <div class="section-title">銘柄間相関（3ヶ月）</div>
+      <div id="correlation-heatmap" style="margin-bottom:20px"></div>
+
       <div class="section-title">配当カレンダー</div>
       <div id="dividend-calendar" style="margin-bottom:20px"></div>
 
@@ -1730,6 +1733,52 @@
     `;
   }
 
+  // --- 相関ヒートマップ ---
+  function renderCorrelation(corr) {
+    const el = document.getElementById('correlation-heatmap');
+    if (!corr || !corr.tickers || corr.tickers.length < 2) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">データ不足（2銘柄以上必要）</div>';
+      return;
+    }
+    const t = corr.tickers;
+    const m = corr.matrix;
+    const size = 38;
+
+    function corrColor(v) {
+      if (v >= 0.7) return '#16a34a';
+      if (v >= 0.3) return '#86efac';
+      if (v >= -0.3) return '#e5e7eb';
+      if (v >= -0.7) return '#fca5a5';
+      return '#dc2626';
+    }
+
+    let html = '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-x:auto">';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">緑=正の相関（一緒に動く） 赤=負の相関（逆に動く） 灰=無相関</div>';
+    html += '<table style="border-collapse:collapse">';
+
+    // ヘッダー行
+    html += '<tr><td></td>';
+    for (const ticker of t) {
+      html += `<td style="text-align:center;font-size:10px;font-weight:600;padding:2px 4px;width:${size}px">${ticker}</td>`;
+    }
+    html += '</tr>';
+
+    // データ行
+    for (let i = 0; i < t.length; i++) {
+      html += `<tr><td style="text-align:right;font-size:10px;font-weight:600;padding:2px 6px">${t[i]}</td>`;
+      for (let j = 0; j < t.length; j++) {
+        const v = m[i][j];
+        const bg = corrColor(v);
+        const textColor = (v >= 0.7 || v <= -0.7) ? '#fff' : 'var(--text)';
+        html += `<td style="background:${bg};color:${textColor};text-align:center;font-size:10px;padding:4px;width:${size}px;height:${size}px;border:1px solid var(--bg)" title="${t[i]} vs ${t[j]}">${v.toFixed(2)}</td>`;
+      }
+      html += '</tr>';
+    }
+
+    html += '</table></div>';
+    el.innerHTML = html;
+  }
+
   // --- パフォーマンス貢献度 ---
   function renderAttribution(attribution) {
     if (!attribution || attribution.length === 0) {
@@ -2132,6 +2181,9 @@
 
     // パフォーマンス貢献度
     renderAttribution(data.attribution || []);
+
+    // 相関ヒートマップ
+    renderCorrelation(data.correlation);
 
     // リバランス提案
     renderRebalance(data.rebalanceSuggestions || []);
