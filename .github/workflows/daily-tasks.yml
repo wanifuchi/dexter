@@ -9,6 +9,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  earnings-check:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 0 * * 1-5' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 2
+    steps:
+      - name: Check upcoming earnings
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/earnings-calendar" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}
+
   economic-alerts:
     runs-on: ubuntu-latest
     if: github.event.schedule == '0 0 * * 1-5' || github.event_name == 'workflow_dispatch'

@@ -52,6 +52,7 @@ import {
   sendNotification, SEND_NOTIFICATION_DESCRIPTION,
   watchlistManager, WATCHLIST_MANAGER_DESCRIPTION,
   learningTool, LEARNING_ENGINE_DESCRIPTION,
+  journalTool, JOURNAL_TOOL_DESCRIPTION,
 } from './trading/index.js';
 
 /**
@@ -278,6 +279,7 @@ export function getToolRegistry(model: string): RegisteredTool[] {
     { name: 'send_notification', tool: sendNotification, description: SEND_NOTIFICATION_DESCRIPTION },
     { name: 'watchlist_manager', tool: watchlistManager, description: WATCHLIST_MANAGER_DESCRIPTION },
     { name: 'learning_engine', tool: learningTool, description: LEARNING_ENGINE_DESCRIPTION },
+    { name: 'trade_journal', tool: journalTool, description: JOURNAL_TOOL_DESCRIPTION },
   );
 
   // Include skill tool if any skills are available

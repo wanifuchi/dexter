@@ -42,6 +42,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const mod = await import('../../src/api-handlers/weekly-report.js');
       return mod.default(req, res);
     }
+    case 'earnings-calendar': {
+      const mod = await import('../../src/api-handlers/earnings-calendar.js');
+      return mod.default(req, res);
+    }
     default:
       return res.status(400).json({ error: `Unknown job: ${job}` });
   }

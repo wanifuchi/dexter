@@ -1,0 +1,16 @@
+{
+  "name": "Finx",
+  "short_name": "Finx",
+  "description": "金融リサーチAIエージェント",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F1EC",
+  "theme_color": "#2C2A26",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232C2A26'/><text x='50' y='68' font-size='50' font-family='system-ui' font-weight='700' fill='%23F4F1EC' text-anchor='middle'>Fx</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

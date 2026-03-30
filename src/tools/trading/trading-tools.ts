@@ -14,6 +14,7 @@ import {
 } from './alert-store.js';
 import { loadWatchlist, addToWatchlist, removeFromWatchlist } from './watchlist-store.js';
 import { addLearningEntry, updateInvestmentStyle, loadLearning } from './learning-engine.js';
+import { addJournalEntry, loadJournal, updateJournalOutcome } from './trade-journal.js';
 import { sendMessageLine, isLineAvailable } from '../../gateway/channels/line/index.js';
 import type { AccountType, AlertCondition, NotificationChannel } from './types.js';
 
@@ -294,3 +295,60 @@ export const LEARNING_ENGINE_DESCRIPTION = `ユーザーの投資スタイルと
 - 投資判断の失敗/成功から得た教訓 → record(lesson)
 - ユーザーが認知バイアスに陥っている可能性がある時 → record(bias_alert)
 学習データは次回以降の対話で自動的に参照され、ユーザーに最適化された提案に活かされる。`;
+
+// ---------- 取引日記 ----------
+
+export const journalTool = new DynamicStructuredTool({
+  name: 'trade_journal',
+  description: `売買の判断理由・感情・結果を記録する取引日記。
+投資判断の振り返りと学習に使用。`,
+  schema: z.object({
+    action: z.enum(['record', 'update_outcome', 'view']).describe('操作'),
+    ticker: z.string().optional(),
+    tradeAction: z.enum(['buy', 'sell', 'hold', 'watchlist']).optional(),
+    reason: z.string().optional().describe('判断理由'),
+    emotion: z.string().optional().describe('そのときの感情（恐怖、興奮、確信など）'),
+    priceAtTime: z.number().optional(),
+    entryId: z.string().optional().describe('結果更新時のエントリID'),
+    outcome: z.string().optional().describe('結果（成功/失敗/保留）'),
+    lessonsLearned: z.string().optional().describe('得た教訓'),
+  }),
+  func: async (input) => {
+    switch (input.action) {
+      case 'record': {
+        if (!input.ticker || !input.tradeAction || !input.reason) {
+          return formatToolResult({ error: 'ticker, tradeAction, reasonは必須' });
+        }
+        const entry = await addJournalEntry({
+          date: new Date().toISOString().split('T')[0],
+          ticker: input.ticker,
+          action: input.tradeAction,
+          reason: input.reason,
+          emotion: input.emotion,
+          priceAtTime: input.priceAtTime,
+        });
+        return formatToolResult({ message: '取引日記に記録しました', entry });
+      }
+      case 'update_outcome': {
+        if (!input.entryId || !input.outcome) {
+          return formatToolResult({ error: 'entryIdとoutcomeは必須' });
+        }
+        const updated = await updateJournalOutcome(input.entryId, input.outcome, input.lessonsLearned);
+        return formatToolResult({ message: updated ? '結果を更新しました' : 'エントリが見つかりません' });
+      }
+      case 'view': {
+        const store = await loadJournal();
+        return formatToolResult({
+          totalEntries: store.entries.length,
+          recentEntries: store.entries.slice(-10).reverse(),
+        });
+      }
+    }
+  },
+});
+
+export const JOURNAL_TOOL_DESCRIPTION = `売買判断を記録する取引日記。
+- ユーザーが売買を決断した時 → record（理由・感情を記録）
+- 後から結果が分かった時 → update_outcome（成功/失敗+教訓）
+- 振り返りたい時 → view（直近10件表示）
+取引日記は学習エンジンと連携し、同じ失敗を繰り返さないよう提案に活かされる。`;

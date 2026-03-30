@@ -9,6 +9,8 @@ export {
   WATCHLIST_MANAGER_DESCRIPTION,
   learningTool,
   LEARNING_ENGINE_DESCRIPTION,
+  journalTool,
+  JOURNAL_TOOL_DESCRIPTION,
 } from './trading-tools.js';
 
 export {

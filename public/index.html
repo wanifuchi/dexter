@@ -2,7 +2,11 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2C2A26">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.json">
   <title>Finx</title>
   <style>
     :root {
@@ -609,10 +613,10 @@
       <h2>何を調べますか？</h2>
       <p>銘柄分析、スクリーニング、財務比較など。<br>日本株・米国株どちらも対応しています。</p>
       <div class="suggestions">
-        <div class="suggestion" onclick="sendSuggestion(this)">NVIDIAの最新の財務状況を分析して</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">トヨタ(7203)の財務分析をして</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">ROE15%以上、配当利回り3%以上の日本株を探して</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">PER20以下の割安な米国テクノロジー株をスクリーニング</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">NVDAとAMDを財務・テクニカル・将来性で比較して</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">バフェットが好みそうな米国株を5つ教えて</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">配当利回り5%以上で10年連続増配の銘柄をスクリーニング</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">今のポートフォリオのリスク分析と改善提案をして</div>
       </div>
     </div>
   </div>
@@ -775,6 +779,19 @@
 
         <div class="section-title">リバランス提案</div>
         <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
+        <div class="section-title">ポジション編集</div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:20px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;font-size:12px">
+            <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">銘柄</div><input id="pe-ticker" type="text" placeholder="NVDA" style="width:70px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></div>
+            <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">名称</div><input id="pe-name" type="text" placeholder="NVIDIA" style="width:80px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></div>
+            <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">株数</div><input id="pe-shares" type="number" min="1" style="width:60px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></div>
+            <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">取得単価($)</div><input id="pe-cost" type="number" step="0.01" style="width:80px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></div>
+            <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">口座</div><select id="pe-account" style="padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"><option value="sbi-nisa">SBI NISA</option><option value="sbi-tokutei">SBI 特定</option><option value="rakuten-nisa">楽天 NISA</option><option value="rakuten-tokutei">楽天 特定</option></select></div>
+            <button type="button" onclick="addPositionUI()" style="padding:5px 12px;background:var(--text);color:var(--bg);border:none;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit">追加</button>
+          </div>
+          <div id="pe-status" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
+        </div>
+
         <div class="section-title">ウォッチリスト</div>
         <div class="positions-table-wrap" style="margin-bottom:20px">
           <table class="positions-table">
@@ -1414,6 +1431,32 @@
       &nbsp;&nbsp;<span style="color:var(--text-muted)">基準=100</span>
     `;
     legendEl.style.display = 'block';
+  }
+
+  // --- ポジション編集 ---
+  async function addPositionUI() {
+    const ticker = document.getElementById('pe-ticker').value.trim().toUpperCase();
+    const name = document.getElementById('pe-name').value.trim();
+    const shares = parseInt(document.getElementById('pe-shares').value);
+    const avgCost = parseFloat(document.getElementById('pe-cost').value);
+    const account = document.getElementById('pe-account').value;
+    const status = document.getElementById('pe-status');
+    if (!ticker || !shares || !avgCost) { status.textContent = '銘柄・株数・取得単価は必須です'; return; }
+    status.textContent = '追加中...';
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: `ポートフォリオに${ticker}（${name || ticker}）を${shares}株、取得単価$${avgCost}、${account}で登録して`, sessionId: 'portfolio-edit' }),
+      });
+      status.textContent = `${ticker} を追加しました。ページをリロードして反映を確認してください。`;
+      document.getElementById('pe-ticker').value = '';
+      document.getElementById('pe-name').value = '';
+      document.getElementById('pe-shares').value = '';
+      document.getElementById('pe-cost').value = '';
+    } catch (e) {
+      status.textContent = 'エラー: ' + e.message;
+    }
   }
 
   // --- 銘柄詳細（チャットで分析） ---
