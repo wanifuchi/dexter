@@ -428,6 +428,35 @@
       padding: 40px;
     }
 
+    /* サブタブ */
+    .pf-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+    .pf-tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; cursor: pointer; white-space: nowrap; font-family: inherit; transition: color 0.15s, border-color 0.15s; }
+    .pf-tab:hover { color: var(--text-sub); }
+    .pf-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; margin-left: 4px; }
+    .pf-tab-content { display: none; }
+    .pf-tab-content.active { display: block; }
+
+    /* 分析2カラム */
+    .analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+    /* 折りたたみ */
+    .collapsible-section { margin-bottom: 16px; }
+    .collapsible-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px 0; -webkit-user-select: none; user-select: none; }
+    .collapsible-header .chevron { transition: transform 0.2s; color: var(--text-muted); font-size: 12px; }
+    .collapsible-header.open .chevron { transform: rotate(180deg); }
+    .collapsible-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+    .collapsible-body.open { max-height: 2000px; }
+
+    /* ツールチップ */
+    .tooltip-trigger { position: relative; cursor: help; border-bottom: 1px dotted var(--text-muted); }
+    .tooltip-trigger::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--bg-user); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 400; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 50; }
+    .tooltip-trigger:hover::after { opacity: 1; }
+
+    /* 損益カラー段階 */
+    .pnl-strong-pos { color: #15803d; font-weight: 700; }
+    .pnl-strong-neg { color: #991b1b; font-weight: 700; }
+
     /* ポートフォリオページ */
     .portfolio-container {
       flex: 1;
@@ -538,6 +567,10 @@
       font-size: 13px;
     }
 
+    @media (max-width: 768px) {
+      .hide-mobile { display: none; }
+      .analysis-grid { grid-template-columns: 1fr; }
+    }
     @media (max-width: 640px) {
       .suggestions { grid-template-columns: 1fr; }
       .msg-user .bubble { max-width: 85%; }
@@ -545,6 +578,7 @@
       .input-area { padding: 12px; }
       .summary-cards { grid-template-columns: repeat(2, 1fr); }
       .account-cards { flex-direction: column; }
+      .pf-tab { padding: 8px 10px; font-size: 12px; }
     }
   </style>
 </head>
@@ -613,105 +647,135 @@
   <div class="portfolio-container" id="portfolio-container">
     <div class="portfolio-loading" id="portfolio-loading">読み込み中...</div>
     <div id="portfolio-content" style="display:none">
+      <!-- サマリー（常に表示） -->
       <div class="summary-cards" id="summary-cards"></div>
-      <div class="section-title">口座別</div>
-      <div class="account-cards" id="account-cards"></div>
-      <div class="section-title">セクター分散</div>
-      <div id="sector-chart" style="margin-bottom:20px"></div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-        <div class="section-title" style="margin-bottom:0">ポジション</div>
-        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
-          <select id="pf-filter-account" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
-            <option value="">全口座</option>
-            <option value="sbi-nisa">SBI NISA</option>
-            <option value="sbi-tokutei">SBI 特定</option>
-            <option value="rakuten-nisa">楽天 NISA</option>
-            <option value="rakuten-tokutei">楽天 特定</option>
-          </select>
-          <select id="pf-sort" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
-            <option value="pnlPct-desc">損益率 ↓</option>
-            <option value="pnlPct-asc">損益率 ↑</option>
-            <option value="marketValue-desc">時価 ↓</option>
-            <option value="marketValue-asc">時価 ↑</option>
-            <option value="dayChange-desc">日次 ↓</option>
-            <option value="dayChange-asc">日次 ↑</option>
-            <option value="rsi14-asc">RSI ↑(売られすぎ順)</option>
-            <option value="ticker-asc">銘柄名 A→Z</option>
-          </select>
+      <!-- サブタブ -->
+      <div class="pf-tabs">
+        <button type="button" class="pf-tab active" onclick="switchPfTab('positions')">ポジション</button>
+        <button type="button" class="pf-tab" onclick="switchPfTab('analysis')">分析</button>
+        <button type="button" class="pf-tab" onclick="switchPfTab('dividends')">配当</button>
+        <button type="button" class="pf-tab" onclick="switchPfTab('manage')">管理 <span class="tab-badge" id="manage-badge" style="display:none">0</span></button>
+      </div>
+
+      <!-- ポジションタブ -->
+      <div class="pf-tab-content active" id="pftab-positions">
+        <div class="account-cards" id="account-cards"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px;flex-wrap:wrap;gap:8px">
+          <div class="section-title" style="margin-bottom:0">保有銘柄</div>
+          <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+            <select id="pf-filter-account" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
+              <option value="">全口座</option>
+              <option value="sbi-nisa">SBI NISA</option>
+              <option value="sbi-tokutei">SBI 特定</option>
+              <option value="rakuten-nisa">楽天 NISA</option>
+              <option value="rakuten-tokutei">楽天 特定</option>
+            </select>
+            <select id="pf-sort" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
+              <option value="pnlPct-desc">損益率 ↓</option>
+              <option value="pnlPct-asc">損益率 ↑</option>
+              <option value="marketValue-desc">時価 ↓</option>
+              <option value="marketValue-asc">時価 ↑</option>
+              <option value="dayChange-desc">日次 ↓</option>
+              <option value="dayChange-asc">日次 ↑</option>
+              <option value="rsi14-asc">RSI ↑</option>
+              <option value="ticker-asc">銘柄名 A→Z</option>
+            </select>
+          </div>
+        </div>
+        <div class="positions-table-wrap">
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th>銘柄</th>
+                <th>現在値</th>
+                <th>損益率</th>
+                <th>日次</th>
+                <th class="hide-mobile">時価</th>
+                <th class="hide-mobile">損益</th>
+                <th class="hide-mobile"><span class="tooltip-trigger" data-tooltip="14日間相対力指数。30以下=売られすぎ、70以上=買われすぎ">RSI</span></th>
+                <th class="hide-mobile"><span class="tooltip-trigger" data-tooltip="現在値と50日移動平均線の乖離率">vs 50MA</span></th>
+                <th class="hide-mobile">口座</th>
+              </tr>
+            </thead>
+            <tbody id="positions-body"></tbody>
+          </table>
         </div>
       </div>
-      <div class="positions-table-wrap">
-        <table class="positions-table">
-          <thead>
-            <tr>
-              <th>銘柄</th>
-              <th>名称</th>
-              <th>株数</th>
-              <th>取得単価</th>
-              <th>現在値</th>
-              <th>時価</th>
-              <th>損益</th>
-              <th>損益率</th>
-              <th>日次</th>
-              <th>RSI</th>
-              <th>vs 50MA</th>
-              <th>口座</th>
-            </tr>
-          </thead>
-          <tbody id="positions-body"></tbody>
-        </table>
+
+      <!-- 分析タブ -->
+      <div class="pf-tab-content" id="pftab-analysis">
+        <div class="section-title">パフォーマンス推移</div>
+        <div id="chart-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px;min-height:200px">
+          <div class="portfolio-loading" id="chart-loading">チャートデータを取得中...</div>
+          <svg id="perf-chart" width="100%" height="250" style="display:none"></svg>
+          <div id="chart-legend" style="display:none;font-size:11px;color:var(--text-muted);margin-top:8px"></div>
+        </div>
+        <div class="analysis-grid">
+          <div>
+            <div class="section-title">セクター分散</div>
+            <div id="sector-chart"></div>
+          </div>
+          <div>
+            <div class="section-title">パフォーマンス貢献度</div>
+            <div id="attribution-chart"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleCollapse(this)">
+            <span class="section-title" style="margin-bottom:0">銘柄間相関（3ヶ月）</span>
+            <span class="chevron">&#x25BC;</span>
+          </div>
+          <div class="collapsible-body"><div id="correlation-heatmap"></div></div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleCollapse(this)">
+            <span class="section-title" style="margin-bottom:0">為替感応度分析</span>
+            <span class="chevron">&#x25BC;</span>
+          </div>
+          <div class="collapsible-body"><div id="fx-analysis"></div></div>
+        </div>
       </div>
-      <div class="section-title">パフォーマンス推移</div>
-      <div id="chart-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px;min-height:200px">
-        <div class="portfolio-loading" id="chart-loading">チャートデータを取得中...</div>
-        <svg id="perf-chart" width="100%" height="250" style="display:none"></svg>
-        <div id="chart-legend" style="display:none;font-size:11px;color:var(--text-muted);margin-top:8px"></div>
+
+      <!-- 配当タブ -->
+      <div class="pf-tab-content" id="pftab-dividends">
+        <div class="summary-cards" id="dividend-summary"></div>
+        <div class="section-title" style="margin-top:16px">配当詳細</div>
+        <div class="positions-table-wrap">
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th>銘柄</th>
+                <th>株数</th>
+                <th>利回り</th>
+                <th class="hide-mobile">1株配当/年</th>
+                <th>年間配当(税後)</th>
+                <th class="hide-mobile">年間配当(税前)</th>
+                <th class="hide-mobile">直近配当日</th>
+                <th class="hide-mobile">口座</th>
+              </tr>
+            </thead>
+            <tbody id="dividend-body"></tbody>
+          </table>
+        </div>
+        <div class="section-title" style="margin-top:16px">配当カレンダー</div>
+        <div id="dividend-calendar"></div>
       </div>
-      <div class="section-title">配当収入</div>
-      <div class="summary-cards" id="dividend-summary" style="margin-bottom:12px"></div>
-      <div class="positions-table-wrap">
-        <table class="positions-table">
-          <thead>
-            <tr>
-              <th>銘柄</th>
-              <th>名称</th>
-              <th>株数</th>
-              <th>利回り</th>
-              <th>1株配当/年</th>
-              <th>年間配当(税前)</th>
-              <th>年間配当(税後)</th>
-              <th>直近配当日</th>
-              <th>口座</th>
-            </tr>
-          </thead>
-          <tbody id="dividend-body"></tbody>
-        </table>
+
+      <!-- 管理タブ -->
+      <div class="pf-tab-content" id="pftab-manage">
+        <div class="section-title">リバランス提案</div>
+        <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
+        <div class="section-title">ウォッチリスト</div>
+        <div class="positions-table-wrap" style="margin-bottom:20px">
+          <table class="positions-table">
+            <thead><tr><th>銘柄</th><th>名称</th><th>現在値</th><th>日次</th><th class="hide-mobile">メモ</th></tr></thead>
+            <tbody id="watchlist-body"></tbody>
+          </table>
+        </div>
+        <div class="section-title">アラートルール</div>
+        <div class="alerts-list" id="alerts-list"></div>
       </div>
-      <div class="section-title">パフォーマンス貢献度</div>
-      <div id="attribution-chart" style="margin-bottom:20px"></div>
-
-      <div class="section-title">リバランス提案</div>
-      <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
-
-      <div class="section-title">銘柄間相関（3ヶ月）</div>
-      <div id="correlation-heatmap" style="margin-bottom:20px"></div>
-
-      <div class="section-title">配当カレンダー</div>
-      <div id="dividend-calendar" style="margin-bottom:20px"></div>
-
-      <div class="section-title">為替感応度分析</div>
-      <div id="fx-analysis" style="margin-bottom:20px"></div>
-
-      <div class="section-title">ウォッチリスト</div>
-      <div class="positions-table-wrap" style="margin-bottom:20px">
-        <table class="positions-table">
-          <thead><tr><th>銘柄</th><th>名称</th><th>現在値</th><th>日次</th><th>メモ</th></tr></thead>
-          <tbody id="watchlist-body"></tbody>
-        </table>
-      </div>
-      <div class="section-title">アラートルール</div>
-      <div class="alerts-list" id="alerts-list"></div>
     </div>
   </div>
 </div>
@@ -1853,13 +1917,17 @@
   // --- リバランス提案 ---
   function renderRebalance(suggestions) {
     const el = document.getElementById('rebalance-suggestions');
+    const badge = document.getElementById('manage-badge');
     if (!suggestions || suggestions.length === 0) {
       el.innerHTML = '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:12px;color:var(--text-muted)">✅ 現在、特に問題のある偏りは検出されていません。</div>';
+      badge.style.display = 'none';
       return;
     }
     el.innerHTML = suggestions.map(s =>
       `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:6px">⚠️ ${s}</div>`
     ).join('');
+    badge.textContent = suggestions.length;
+    badge.style.display = 'inline-flex';
   }
 
   // --- 為替感応度分析 ---
@@ -1924,32 +1992,29 @@
       const jp = isJpTicker(p.ticker);
       const price = p.currentPrice !== null ? fmtPrice(p.currentPrice, p.ticker) : '-';
       const mv = p.marketValue !== null ? fmtValue(p.marketValue, p.ticker) : '-';
-      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${jp ? fmtJpy(p.pnl) : `${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span>`}</span>` : '-';
+      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${jp ? fmtJpy(p.pnl) : fmtUsd(p.pnl)}</span>` : '-';
       const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
       const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
       let rsiHtml = '-';
       if (p.rsi14 !== null) {
         const rsiColor = p.rsi14 <= 30 ? 'pnl-pos' : p.rsi14 >= 70 ? 'pnl-neg' : '';
-        rsiHtml = `<span class="${rsiColor}" title="RSI(14)">${p.rsi14.toFixed(0)}</span>`;
+        rsiHtml = `<span class="${rsiColor}">${p.rsi14.toFixed(0)}</span>`;
       }
       let smaHtml = '-';
       if (p.sma50 !== null && p.currentPrice !== null) {
         const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
-        smaHtml = `<span class="${pnlClass(diff)}" title="50日MA: ${fmtUsd(p.sma50)}">${fmtPct(diff)}</span>`;
+        smaHtml = `<span class="${pnlClass(diff)}">${fmtPct(diff)}</span>`;
       }
       return `<tr>
-        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="analyzeStock('${p.ticker}')" title="クリックで詳細分析">${p.ticker}</a></td>
-        <td>${escapeHtml(p.name)}</td>
-        <td>${p.shares.toLocaleString()}</td>
-        <td>${fmtPrice(p.avgCost, p.ticker)}</td>
+        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="analyzeStock('${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
         <td>${price}</td>
-        <td>${mv}</td>
-        <td>${pnl}</td>
         <td>${pnlPct}</td>
         <td>${day}</td>
-        <td>${rsiHtml}</td>
-        <td>${smaHtml}</td>
-        <td>${accountLabels[p.account] || p.account}</td>
+        <td class="hide-mobile">${mv}</td>
+        <td class="hide-mobile">${pnl}</td>
+        <td class="hide-mobile">${rsiHtml}</td>
+        <td class="hide-mobile">${smaHtml}</td>
+        <td class="hide-mobile">${accountLabels[p.account] || p.account}</td>
       </tr>`;
     }).join('');
     document.getElementById('positions-body').innerHTML = rows;
@@ -2094,7 +2159,27 @@
     return `${fmtUsd(n)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(n * portfolioUsdJpy)}</span>`;
   }
   function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
-  function pnlClass(n) { return n >= 0 ? 'pnl-pos' : 'pnl-neg'; }
+  function pnlClass(n) {
+    if (n > 10) return 'pnl-strong-pos';
+    if (n > 0.5) return 'pnl-pos';
+    if (n > -0.5) return '';
+    if (n > -10) return 'pnl-neg';
+    return 'pnl-strong-neg';
+  }
+
+  // サブタブ切替
+  function switchPfTab(tab) {
+    document.querySelectorAll('.pf-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pf-tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelector(`.pf-tab[onclick*="${tab}"]`).classList.add('active');
+    document.getElementById('pftab-' + tab).classList.add('active');
+  }
+
+  // 折りたたみ
+  function toggleCollapse(header) {
+    header.classList.toggle('open');
+    header.nextElementSibling.classList.toggle('open');
+  }
 
   async function loadPortfolioPage() {
     const loading = document.getElementById('portfolio-loading');
