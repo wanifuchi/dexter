@@ -2,22 +2,30 @@
   "installCommand": "npm install",
   "framework": null,
   "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 300,
-      "includeFiles": "src/**"
-    }
+    "api/chat.ts": { "maxDuration": 300, "includeFiles": "src/**" },
+    "api/health.ts": { "maxDuration": 10, "includeFiles": "src/**" },
+    "api/data.ts": { "maxDuration": 30, "includeFiles": "src/**,api/portfolio.ts,api/dividends.ts,api/watchlist.ts,api/snapshots.ts" },
+    "api/backtest.ts": { "maxDuration": 60, "includeFiles": "src/**" },
+    "api/paper-trade.ts": { "maxDuration": 30, "includeFiles": "src/**" },
+    "api/line-webhook.ts": { "maxDuration": 10, "includeFiles": "src/**" },
+    "api/auto-strategy-config.ts": { "maxDuration": 10, "includeFiles": "src/**" },
+    "api/cron/index.ts": { "maxDuration": 60, "includeFiles": "src/**,api/cron/*.ts" }
   },
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },
     { "source": "/api/chat", "destination": "/api/chat" },
-    { "source": "/api/portfolio", "destination": "/api/portfolio" },
-    { "source": "/api/dividends", "destination": "/api/dividends" },
-    { "source": "/api/snapshots", "destination": "/api/snapshots" },
+    { "source": "/api/portfolio", "destination": "/api/data?type=portfolio" },
+    { "source": "/api/dividends", "destination": "/api/data?type=dividends" },
+    { "source": "/api/watchlist", "destination": "/api/data?type=watchlist" },
+    { "source": "/api/snapshots", "destination": "/api/data?type=snapshots" },
     { "source": "/api/backtest", "destination": "/api/backtest" },
-    { "source": "/api/watchlist", "destination": "/api/watchlist" },
     { "source": "/api/paper-trade", "destination": "/api/paper-trade" },
     { "source": "/api/line-webhook", "destination": "/api/line-webhook" },
-    { "source": "/api/auto-strategy-config", "destination": "/api/auto-strategy-config" }
+    { "source": "/api/auto-strategy-config", "destination": "/api/auto-strategy-config" },
+    { "source": "/api/cron/scan-alerts", "destination": "/api/cron?job=scan-alerts" },
+    { "source": "/api/cron/snapshot", "destination": "/api/cron?job=snapshot" },
+    { "source": "/api/cron/news-alerts", "destination": "/api/cron?job=news-alerts" },
+    { "source": "/api/cron/auto-strategy", "destination": "/api/cron?job=auto-strategy" }
   ],
   "crons": [
     {
