@@ -615,7 +615,31 @@
       <div class="summary-cards" id="summary-cards"></div>
       <div class="section-title">口座別</div>
       <div class="account-cards" id="account-cards"></div>
-      <div class="section-title">ポジション</div>
+      <div class="section-title">セクター分散</div>
+      <div id="sector-chart" style="margin-bottom:20px"></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <div class="section-title" style="margin-bottom:0">ポジション</div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+          <select id="pf-filter-account" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
+            <option value="">全口座</option>
+            <option value="sbi-nisa">SBI NISA</option>
+            <option value="sbi-tokutei">SBI 特定</option>
+            <option value="rakuten-nisa">楽天 NISA</option>
+            <option value="rakuten-tokutei">楽天 特定</option>
+          </select>
+          <select id="pf-sort" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
+            <option value="pnlPct-desc">損益率 ↓</option>
+            <option value="pnlPct-asc">損益率 ↑</option>
+            <option value="marketValue-desc">時価 ↓</option>
+            <option value="marketValue-asc">時価 ↑</option>
+            <option value="dayChange-desc">日次 ↓</option>
+            <option value="dayChange-asc">日次 ↑</option>
+            <option value="rsi14-asc">RSI ↑(売られすぎ順)</option>
+            <option value="ticker-asc">銘柄名 A→Z</option>
+          </select>
+        </div>
+      </div>
       <div class="positions-table-wrap">
         <table class="positions-table">
           <thead>
@@ -1451,6 +1475,106 @@
     `;
   }
 
+  // --- ソート・フィルター ---
+  function applyPortfolioFilter() {
+    const accountFilter = document.getElementById('pf-filter-account').value;
+    const sortKey = document.getElementById('pf-sort').value;
+
+    let filtered = [...portfolioPositions];
+    if (accountFilter) {
+      filtered = filtered.filter(p => p.account === accountFilter);
+    }
+
+    const [field, dir] = sortKey.split('-');
+    filtered.sort((a, b) => {
+      const av = a[field] ?? (dir === 'desc' ? -Infinity : Infinity);
+      const bv = b[field] ?? (dir === 'desc' ? -Infinity : Infinity);
+      if (field === 'ticker') return dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+      return dir === 'desc' ? bv - av : av - bv;
+    });
+
+    renderPositionsTable(filtered);
+  }
+
+  function renderPositionsTable(positions) {
+    const rows = positions.map(p => {
+      const price = p.currentPrice !== null ? fmtUsd(p.currentPrice) : '-';
+      const mv = p.marketValue !== null ? `${fmtUsd(p.marketValue)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(p.marketValue * portfolioUsdJpy)}</span>` : '-';
+      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span></span>` : '-';
+      const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
+      const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
+      let rsiHtml = '-';
+      if (p.rsi14 !== null) {
+        const rsiColor = p.rsi14 <= 30 ? 'pnl-pos' : p.rsi14 >= 70 ? 'pnl-neg' : '';
+        rsiHtml = `<span class="${rsiColor}" title="RSI(14)">${p.rsi14.toFixed(0)}</span>`;
+      }
+      let smaHtml = '-';
+      if (p.sma50 !== null && p.currentPrice !== null) {
+        const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
+        smaHtml = `<span class="${pnlClass(diff)}" title="50日MA: ${fmtUsd(p.sma50)}">${fmtPct(diff)}</span>`;
+      }
+      return `<tr>
+        <td><strong>${p.ticker}</strong></td>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${p.shares.toLocaleString()}</td>
+        <td>${fmtUsd(p.avgCost)}</td>
+        <td>${price}</td>
+        <td>${mv}</td>
+        <td>${pnl}</td>
+        <td>${pnlPct}</td>
+        <td>${day}</td>
+        <td>${rsiHtml}</td>
+        <td>${smaHtml}</td>
+        <td>${accountLabels[p.account] || p.account}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('positions-body').innerHTML = rows;
+  }
+
+  // --- セクター分散分析 ---
+  const sectorMap = {
+    'NVDA': 'AI/半導体', 'SOXL': 'AI/半導体', 'NVTS': 'AI/半導体',
+    'AAPL': 'メガテック',
+    'PBR': 'エネルギー', 'EC': 'エネルギー',
+    'GRAB': '新興国',
+    'IREN': 'BTC/マイニング', 'CIFR': 'BTC/マイニング', 'WULF': 'BTC/マイニング',
+  };
+  const sectorColors = {
+    'AI/半導体': '#6366f1', 'メガテック': '#3b82f6', 'エネルギー': '#f59e0b',
+    '新興国': '#10b981', 'BTC/マイニング': '#ef4444', 'その他': '#9ca3af',
+  };
+
+  function renderSectorChart(positions) {
+    const sectors = {};
+    for (const p of positions) {
+      const sector = sectorMap[p.ticker] || 'その他';
+      if (!sectors[sector]) sectors[sector] = 0;
+      sectors[sector] += p.marketValue || 0;
+    }
+    const total = Object.values(sectors).reduce((s, v) => s + v, 0);
+    if (total <= 0) { document.getElementById('sector-chart').innerHTML = ''; return; }
+
+    const entries = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
+
+    // 横バーチャート
+    const bars = entries.map(([name, value]) => {
+      const pct = (value / total * 100).toFixed(1);
+      const color = sectorColors[name] || '#9ca3af';
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="width:100px;font-size:12px;text-align:right;color:var(--text-sub);flex-shrink:0">${name}</div>
+        <div style="flex:1;background:var(--border-light);border-radius:4px;height:20px;overflow:hidden">
+          <div style="width:${pct}%;background:${color};height:100%;border-radius:4px;min-width:2px"></div>
+        </div>
+        <div style="width:80px;font-size:11px;color:var(--text-muted);flex-shrink:0">${pct}% ${fmtJpy(value * portfolioUsdJpy)}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('sector-chart').innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        ${bars}
+      </div>`;
+  }
+
   // --- ウォッチリスト ---
   function renderWatchlist(data) {
     const body = document.getElementById('watchlist-body');
@@ -1575,8 +1699,11 @@
     }
   }
 
+  let portfolioPositions = []; // ソート・フィルター用にデータ保持
+
   function renderPortfolio(data) {
     portfolioUsdJpy = data.usdJpy || 150;
+    portfolioPositions = data.positions;
 
     // サマリーカード
     const s = data.summary;
@@ -1617,41 +1744,11 @@
     }).join('');
     document.getElementById('account-cards').innerHTML = acctHtml;
 
-    // ポジションテーブル
-    const rows = data.positions.map(p => {
-      const price = p.currentPrice !== null ? fmtUsd(p.currentPrice) : '-';
-      const mv = p.marketValue !== null ? `${fmtUsd(p.marketValue)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(p.marketValue * portfolioUsdJpy)}</span>` : '-';
-      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span></span>` : '-';
-      const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
-      const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
-      // RSI: 30以下=売られすぎ(緑), 70以上=買われすぎ(赤)
-      let rsiHtml = '-';
-      if (p.rsi14 !== null) {
-        const rsiColor = p.rsi14 <= 30 ? 'pnl-pos' : p.rsi14 >= 70 ? 'pnl-neg' : '';
-        rsiHtml = `<span class="${rsiColor}" title="RSI(14)">${p.rsi14.toFixed(0)}</span>`;
-      }
-      // vs 50MA: 現在値と50日移動平均の乖離率
-      let smaHtml = '-';
-      if (p.sma50 !== null && p.currentPrice !== null) {
-        const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
-        smaHtml = `<span class="${pnlClass(diff)}" title="50日MA: ${fmtUsd(p.sma50)}">${fmtPct(diff)}</span>`;
-      }
-      return `<tr>
-        <td><strong>${p.ticker}</strong></td>
-        <td>${escapeHtml(p.name)}</td>
-        <td>${p.shares.toLocaleString()}</td>
-        <td>${fmtUsd(p.avgCost)}</td>
-        <td>${price}</td>
-        <td>${mv}</td>
-        <td>${pnl}</td>
-        <td>${pnlPct}</td>
-        <td>${day}</td>
-        <td>${rsiHtml}</td>
-        <td>${smaHtml}</td>
-        <td>${accountLabels[p.account] || p.account}</td>
-      </tr>`;
-    }).join('');
-    document.getElementById('positions-body').innerHTML = rows;
+    // セクター分散分析
+    renderSectorChart(data.positions);
+
+    // ポジションテーブル（初期表示）
+    renderPositionsTable(data.positions);
 
     // アラートルール
     const condLabels = {
