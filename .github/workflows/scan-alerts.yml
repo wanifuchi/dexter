@@ -22,6 +22,19 @@ jobs:
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
+  auto-strategy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Run auto strategy
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/auto-strategy" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}
+
   news:
     runs-on: ubuntu-latest
     timeout-minutes: 2

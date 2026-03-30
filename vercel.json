@@ -15,7 +15,9 @@
     { "source": "/api/snapshots", "destination": "/api/snapshots" },
     { "source": "/api/backtest", "destination": "/api/backtest" },
     { "source": "/api/watchlist", "destination": "/api/watchlist" },
-    { "source": "/api/paper-trade", "destination": "/api/paper-trade" }
+    { "source": "/api/paper-trade", "destination": "/api/paper-trade" },
+    { "source": "/api/line-webhook", "destination": "/api/line-webhook" },
+    { "source": "/api/auto-strategy-config", "destination": "/api/auto-strategy-config" }
   ],
   "crons": [
     {

@@ -688,6 +688,15 @@
           <tbody id="dividend-body"></tbody>
         </table>
       </div>
+      <div class="section-title">パフォーマンス貢献度</div>
+      <div id="attribution-chart" style="margin-bottom:20px"></div>
+
+      <div class="section-title">リバランス提案</div>
+      <div id="rebalance-suggestions" style="margin-bottom:20px"></div>
+
+      <div class="section-title">配当カレンダー</div>
+      <div id="dividend-calendar" style="margin-bottom:20px"></div>
+
       <div class="section-title">為替感応度分析</div>
       <div id="fx-analysis" style="margin-bottom:20px"></div>
 
@@ -732,6 +741,16 @@
           <thead><tr><th>銘柄</th><th>株数</th><th>取得単価</th><th>現在値</th><th>時価</th><th>損益</th><th>損益率</th></tr></thead>
           <tbody id="paper-positions"></tbody>
         </table>
+      </div>
+
+      <div class="section-title">自動戦略</div>
+      <div id="auto-strategy-section" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">戦略</div><select id="as-strategy" style="padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></select></div>
+          <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">銘柄</div><input id="as-tickers" type="text" value="NVDA,AAPL,PBR" style="width:150px;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit"></div>
+          <button type="button" id="as-toggle" onclick="toggleAutoStrategy()" style="padding:6px 16px;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit">有効化</button>
+        </div>
+        <div id="as-status" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
       </div>
 
       <div class="section-title">未約定注文</div>
@@ -1321,7 +1340,73 @@
     legendEl.style.display = 'block';
   }
 
+  // --- 銘柄詳細（チャットで分析） ---
+  function analyzeStock(ticker) {
+    showPage('chat');
+    inputEl.value = `${ticker}の最新の財務状況、テクニカル分析、今後の見通しを総合的に分析して`;
+    sendMessage();
+  }
+
+  // --- ポートフォリオ自動更新（60秒ごと） ---
+  let portfolioAutoRefresh = null;
+  function startPortfolioRefresh() {
+    if (portfolioAutoRefresh) return;
+    portfolioAutoRefresh = setInterval(() => {
+      const activePage = document.querySelector('.page.active');
+      if (activePage?.id === 'portfolio-page') loadPortfolioPage();
+    }, 60000);
+  }
+  startPortfolioRefresh();
+
   // --- ペーパートレード ---
+  // --- 自動戦略 ---
+  async function loadAutoStrategyConfig() {
+    try {
+      const res = await fetch('/api/auto-strategy-config');
+      const data = await res.json();
+      const sel = document.getElementById('as-strategy');
+      sel.innerHTML = (data.strategies || []).map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      const btn = document.getElementById('as-toggle');
+      const status = document.getElementById('as-status');
+      if (data.config) {
+        sel.value = data.config.strategyId;
+        document.getElementById('as-tickers').value = (data.config.tickers || []).join(',');
+        if (data.config.enabled) {
+          btn.textContent = '停止';
+          btn.style.background = '#dc2626';
+          btn.style.color = '#fff';
+          status.textContent = `✅ 有効 — ${data.config.strategyId} (${data.config.tickers.join(',')})`;
+        } else {
+          btn.textContent = '有効化';
+          btn.style.background = '#16a34a';
+          btn.style.color = '#fff';
+          status.textContent = '停止中';
+        }
+      } else {
+        btn.textContent = '有効化';
+        btn.style.background = '#16a34a';
+        btn.style.color = '#fff';
+        status.textContent = '未設定';
+      }
+    } catch {}
+  }
+
+  async function toggleAutoStrategy() {
+    const btn = document.getElementById('as-toggle');
+    const isRunning = btn.textContent === '停止';
+    const strategyId = document.getElementById('as-strategy').value;
+    const tickers = document.getElementById('as-tickers').value.split(',').map(t => t.trim()).filter(Boolean);
+
+    try {
+      await fetch('/api/auto-strategy-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !isRunning, strategyId, tickers, params: {} }),
+      });
+      loadAutoStrategyConfig();
+    } catch {}
+  }
+
   async function loadPaperPage() {
     const loading = document.getElementById('paper-loading');
     const content = document.getElementById('paper-content');
@@ -1332,6 +1417,7 @@
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       renderPaper(data);
+      loadAutoStrategyConfig();
       loading.style.display = 'none';
       content.style.display = 'block';
     } catch (e) {
@@ -1644,6 +1730,89 @@
     `;
   }
 
+  // --- パフォーマンス貢献度 ---
+  function renderAttribution(attribution) {
+    if (!attribution || attribution.length === 0) {
+      document.getElementById('attribution-chart').innerHTML = '<div style="font-size:12px;color:var(--text-muted)">データなし</div>';
+      return;
+    }
+    const maxPnl = Math.max(...attribution.map(a => Math.abs(a.pnl)));
+    const bars = attribution.map(a => {
+      const width = maxPnl > 0 ? (Math.abs(a.pnl) / maxPnl * 100) : 0;
+      const color = a.pnl >= 0 ? '#16a34a' : '#dc2626';
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="width:60px;font-size:12px;text-align:right;flex-shrink:0"><strong>${a.ticker}</strong></div>
+        <div style="flex:1;background:var(--border-light);border-radius:3px;height:16px;overflow:hidden">
+          <div style="width:${width.toFixed(0)}%;background:${color};height:100%;border-radius:3px;min-width:2px"></div>
+        </div>
+        <div style="width:120px;font-size:11px;flex-shrink:0"><span class="${pnlClass(a.pnl)}">${fmtUsd(a.pnl)}</span> (${a.contribution.toFixed(1)}%)</div>
+      </div>`;
+    }).join('');
+    document.getElementById('attribution-chart').innerHTML = `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">${bars}</div>`;
+  }
+
+  // --- 配当カレンダー ---
+  function renderDividendCalendar(positions) {
+    const el = document.getElementById('dividend-calendar');
+    const withDates = positions.filter(p => p.exDividendDate).map(p => ({
+      ticker: p.ticker,
+      name: p.name,
+      date: p.exDividendDate,
+      amount: p.annualDividend,
+      shares: p.shares,
+    }));
+
+    if (withDates.length === 0) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">配当日データなし</div>';
+      return;
+    }
+
+    // 月別にグループ化（直近配当日から次の配当月を推定：四半期ごと）
+    const months = {};
+    for (const p of withDates) {
+      const baseMonth = parseInt(p.date.slice(5, 7));
+      // 四半期サイクルで次の4つの月を推定
+      for (let i = 0; i < 4; i++) {
+        const m = ((baseMonth - 1 + i * 3) % 12) + 1;
+        const key = m.toString().padStart(2, '0');
+        if (!months[key]) months[key] = [];
+        if (!months[key].find(x => x.ticker === p.ticker)) {
+          months[key].push({ ticker: p.ticker, name: p.name, quarterlyAmount: (p.amount || 0) / 4 });
+        }
+      }
+    }
+
+    const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    const currentMonth = new Date().getMonth() + 1;
+    const rate = portfolioUsdJpy;
+
+    const cards = Object.entries(months).sort(([a],[b]) => parseInt(a) - parseInt(b)).map(([m, items]) => {
+      const monthNum = parseInt(m);
+      const isCurrent = monthNum === currentMonth;
+      const total = items.reduce((s, i) => s + i.quarterlyAmount, 0);
+      const tickers = items.map(i => i.ticker).join(', ');
+      return `<div class="account-card" style="${isCurrent ? 'border-color:var(--accent);border-width:2px' : ''}">
+        <div class="acct-name">${monthNames[monthNum - 1]}${isCurrent ? ' ← 今月' : ''}</div>
+        <div class="acct-value">${fmtJpy(total * rate)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${tickers}</div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = `<div class="account-cards" style="flex-wrap:wrap">${cards}</div>`;
+  }
+
+  // --- リバランス提案 ---
+  function renderRebalance(suggestions) {
+    const el = document.getElementById('rebalance-suggestions');
+    if (!suggestions || suggestions.length === 0) {
+      el.innerHTML = '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:12px;color:var(--text-muted)">✅ 現在、特に問題のある偏りは検出されていません。</div>';
+      return;
+    }
+    el.innerHTML = suggestions.map(s =>
+      `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:6px">⚠️ ${s}</div>`
+    ).join('');
+  }
+
   // --- 為替感応度分析 ---
   function renderFxAnalysis(positions, usdJpy) {
     const totalValueUsd = positions.reduce((s, p) => s + (p.marketValue || 0), 0);
@@ -1720,7 +1889,7 @@
         smaHtml = `<span class="${pnlClass(diff)}" title="50日MA: ${fmtUsd(p.sma50)}">${fmtPct(diff)}</span>`;
       }
       return `<tr>
-        <td><strong>${p.ticker}</strong></td>
+        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="analyzeStock('${p.ticker}')" title="クリックで詳細分析">${p.ticker}</a></td>
         <td>${escapeHtml(p.name)}</td>
         <td>${p.shares.toLocaleString()}</td>
         <td>${fmtPrice(p.avgCost, p.ticker)}</td>
@@ -1895,7 +2064,10 @@
       renderPortfolio(data);
 
       const divData = await dividendRes.json();
-      if (!divData.error) renderDividends(divData);
+      if (!divData.error) {
+        renderDividends(divData);
+        renderDividendCalendar(divData.positions || []);
+      }
 
       const wlData = await watchlistRes.json();
       if (!wlData.error) renderWatchlist(wlData);
@@ -1957,6 +2129,12 @@
 
     // セクター分散分析
     renderSectorChart(data.positions);
+
+    // パフォーマンス貢献度
+    renderAttribution(data.attribution || []);
+
+    // リバランス提案
+    renderRebalance(data.rebalanceSuggestions || []);
 
     // 為替感応度分析
     renderFxAnalysis(data.positions, portfolioUsdJpy);

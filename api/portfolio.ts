@@ -149,6 +149,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // パフォーマンスアトリビューション: 各銘柄のPnLが全体にどれだけ貢献したか
+    const attribution = enrichedPositions
+      .filter(p => p.pnl !== null)
+      .map(p => ({
+        ticker: p.ticker,
+        account: p.account,
+        pnl: p.pnl!,
+        contribution: totalPnl !== 0 ? (p.pnl! / totalPnl) * 100 : 0,
+        weight: totalValue > 0 ? ((p.marketValue ?? 0) / totalValue) * 100 : 0,
+      }))
+      .sort((a, b) => b.pnl - a.pnl);
+
+    // リバランス提案: セクター偏りが50%超の場合に警告
+    const sectorMap: Record<string, string> = {
+      NVDA: 'AI/半導体', SOXL: 'AI/半導体', NVTS: 'AI/半導体',
+      AAPL: 'メガテック', PBR: 'エネルギー', EC: 'エネルギー',
+      GRAB: '新興国', IREN: 'BTC/マイニング', CIFR: 'BTC/マイニング', WULF: 'BTC/マイニング',
+    };
+    const sectorValues: Record<string, number> = {};
+    for (const p of enrichedPositions) {
+      const sector = sectorMap[p.ticker] || 'その他';
+      sectorValues[sector] = (sectorValues[sector] || 0) + (p.marketValue ?? 0);
+    }
+    const rebalanceSuggestions: string[] = [];
+    for (const [sector, value] of Object.entries(sectorValues)) {
+      const pct = totalValue > 0 ? (value / totalValue) * 100 : 0;
+      if (pct > 50) rebalanceSuggestions.push(`${sector}が${pct.toFixed(0)}%と過度に集中しています。分散を検討してください。`);
+    }
+    // 個別銘柄が20%超
+    for (const p of enrichedPositions) {
+      const weight = totalValue > 0 ? ((p.marketValue ?? 0) / totalValue) * 100 : 0;
+      if (weight > 20) rebalanceSuggestions.push(`${p.ticker}がポートフォリオの${weight.toFixed(0)}%を占めています。集中リスクに注意。`);
+    }
+
     return res.json({
       positions: enrichedPositions,
       alerts: alertStore.rules ?? [],
@@ -160,6 +194,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         positionCount: enrichedPositions.length,
       },
       accountSummary,
+      attribution,
+      rebalanceSuggestions,
       usdJpy,
       updatedAt: Date.now(),
     });
