@@ -10,7 +10,9 @@
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },
     { "source": "/api/chat", "destination": "/api/chat" },
-    { "source": "/api/portfolio", "destination": "/api/portfolio" }
+    { "source": "/api/portfolio", "destination": "/api/portfolio" },
+    { "source": "/api/dividends", "destination": "/api/dividends" },
+    { "source": "/api/snapshots", "destination": "/api/snapshots" }
   ],
   "crons": [
     {

@@ -1,0 +1,21 @@
+name: Daily Portfolio Snapshot
+
+on:
+  schedule:
+    # 毎営業日 UTC 21:05 (JST 6:05 = NYSE引け後)
+    - cron: '5 21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record daily snapshot
+        run: |
+          curl -s -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.FINX_URL }}/api/cron/snapshot" \
+            | jq .
+        env:
+          FINX_URL: ${{ secrets.FINX_URL }}

@@ -617,6 +617,32 @@
           <tbody id="positions-body"></tbody>
         </table>
       </div>
+      <div class="section-title">パフォーマンス推移</div>
+      <div id="chart-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px;min-height:200px">
+        <div class="portfolio-loading" id="chart-loading">チャートデータを取得中...</div>
+        <svg id="perf-chart" width="100%" height="250" style="display:none"></svg>
+        <div id="chart-legend" style="display:none;font-size:11px;color:var(--text-muted);margin-top:8px"></div>
+      </div>
+      <div class="section-title">配当収入</div>
+      <div class="summary-cards" id="dividend-summary" style="margin-bottom:12px"></div>
+      <div class="positions-table-wrap">
+        <table class="positions-table">
+          <thead>
+            <tr>
+              <th>銘柄</th>
+              <th>名称</th>
+              <th>株数</th>
+              <th>利回り</th>
+              <th>1株配当/年</th>
+              <th>年間配当(税前)</th>
+              <th>年間配当(税後)</th>
+              <th>直近配当日</th>
+              <th>口座</th>
+            </tr>
+          </thead>
+          <tbody id="dividend-body"></tbody>
+        </table>
+      </div>
       <div class="section-title">アラートルール</div>
       <div class="alerts-list" id="alerts-list"></div>
     </div>
@@ -1001,6 +1027,166 @@
     return '';
   }
 
+  // --- パフォーマンスチャート ---
+  async function loadChart() {
+    try {
+      const res = await fetch('/api/snapshots');
+      const data = await res.json();
+      renderChart(data.snapshots || [], data.sp500 || []);
+    } catch {
+      document.getElementById('chart-loading').textContent = 'チャートの読み込みに失敗しました';
+    }
+  }
+
+  function renderChart(snapshots, sp500) {
+    const chartEl = document.getElementById('perf-chart');
+    const legendEl = document.getElementById('chart-legend');
+    const loadingEl = document.getElementById('chart-loading');
+
+    if (snapshots.length < 2) {
+      loadingEl.textContent = 'データ蓄積中です（2日以上のデータが必要）';
+      return;
+    }
+
+    const W = chartEl.clientWidth || 600;
+    const H = 250;
+    const PAD = { top: 20, right: 60, bottom: 30, left: 10 };
+    const cw = W - PAD.left - PAD.right;
+    const ch = H - PAD.top - PAD.bottom;
+
+    // ポートフォリオを基準日比率に変換（初日=100）
+    const baseValue = snapshots[0].totalValue;
+    const portData = snapshots.map(s => ({
+      date: s.date,
+      value: (s.totalValue / baseValue) * 100,
+    }));
+
+    // S&P500も同期間で基準日比率に変換
+    const startDate = snapshots[0].date;
+    const sp500Filtered = sp500.filter(d => d.date >= startDate);
+    let spData = [];
+    if (sp500Filtered.length > 0) {
+      const spBase = sp500Filtered[0].close;
+      spData = sp500Filtered.map(d => ({
+        date: d.date,
+        value: (d.close / spBase) * 100,
+      }));
+    }
+
+    // Y軸の範囲
+    const allValues = [...portData.map(d => d.value), ...spData.map(d => d.value)];
+    const yMin = Math.floor(Math.min(...allValues) - 2);
+    const yMax = Math.ceil(Math.max(...allValues) + 2);
+
+    // X軸のスケール
+    const xScale = (i, total) => PAD.left + (i / (total - 1)) * cw;
+    const yScale = (v) => PAD.top + ch - ((v - yMin) / (yMax - yMin)) * ch;
+
+    // パスを生成
+    function makePath(data) {
+      return data.map((d, i) => {
+        const x = xScale(i, data.length);
+        const y = yScale(d.value);
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+    }
+
+    // Y軸グリッド
+    const gridLines = [];
+    const step = Math.max(1, Math.round((yMax - yMin) / 5));
+    for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
+      const y = yScale(v);
+      gridLines.push(`<line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/>`);
+      gridLines.push(`<text x="${W - PAD.right + 4}" y="${y + 4}" font-size="10" fill="var(--text-muted)">${v.toFixed(0)}</text>`);
+    }
+
+    // X軸ラベル（最初と最後の日付）
+    const xLabels = `
+      <text x="${PAD.left}" y="${H - 5}" font-size="10" fill="var(--text-muted)">${portData[0].date}</text>
+      <text x="${W - PAD.right}" y="${H - 5}" font-size="10" fill="var(--text-muted)" text-anchor="end">${portData[portData.length - 1].date}</text>
+    `;
+
+    // 100ライン（基準線）
+    const baseLine = `<line x1="${PAD.left}" y1="${yScale(100)}" x2="${W - PAD.right}" y2="${yScale(100)}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="4,4"/>`;
+
+    let svg = `${gridLines.join('')}${baseLine}${xLabels}`;
+
+    // S&P500ライン
+    if (spData.length > 1) {
+      svg += `<path d="${makePath(spData)}" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4,2"/>`;
+    }
+
+    // ポートフォリオライン
+    const portColor = portData[portData.length - 1].value >= 100 ? '#16a34a' : '#dc2626';
+    svg += `<path d="${makePath(portData)}" fill="none" stroke="${portColor}" stroke-width="2.5"/>`;
+
+    // 最終値ドット
+    const lastPort = portData[portData.length - 1];
+    svg += `<circle cx="${xScale(portData.length - 1, portData.length)}" cy="${yScale(lastPort.value)}" r="4" fill="${portColor}"/>`;
+
+    chartEl.innerHTML = svg;
+    chartEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    chartEl.style.display = 'block';
+    loadingEl.style.display = 'none';
+
+    legendEl.innerHTML = `
+      <span style="color:${portColor}">━━</span> ポートフォリオ (${lastPort.value.toFixed(1)})
+      ${spData.length > 0 ? `&nbsp;&nbsp;<span style="color:#9ca3af">╌╌</span> S&P500 (${spData[spData.length - 1].value.toFixed(1)})` : ''}
+      &nbsp;&nbsp;<span style="color:var(--text-muted)">基準=100</span>
+    `;
+    legendEl.style.display = 'block';
+  }
+
+  // --- 配当トラッカー ---
+  function renderDividends(data) {
+    const s = data.summary;
+    const rate = data.usdJpy || portfolioUsdJpy;
+
+    document.getElementById('dividend-summary').innerHTML = `
+      <div class="summary-card">
+        <div class="label">年間配当（税前）</div>
+        <div class="value">${fmtJpy(s.totalAnnualDividendJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(s.totalAnnualDividend)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">年間配当（税後）</div>
+        <div class="value">${fmtJpy(s.totalAnnualDividendAfterTaxJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(s.totalAnnualDividendAfterTax)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">月間配当（税後）</div>
+        <div class="value">${fmtJpy(s.totalAnnualDividendAfterTaxJpy / 12)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">配当利回り加重平均</div>
+        <div class="value">${data.positions.filter(p => p.dividendYield).length > 0
+          ? fmtPct(data.positions.reduce((sum, p) => sum + (p.dividendYield || 0), 0) / data.positions.filter(p => p.dividendYield).length)
+          : '-'}</div>
+      </div>
+    `;
+
+    const rows = data.positions.map(p => {
+      const yld = p.dividendYield !== null ? fmtPct(p.dividendYield) : '-';
+      const dps = p.annualDividend !== null && p.shares > 0 ? fmtUsd(p.annualDividend / p.shares) : '-';
+      const annPre = p.annualDividend !== null ? `${fmtUsd(p.annualDividend)}<br><span style="font-size:11px;color:var(--text-muted)">${fmtJpy(p.annualDividend * rate)}</span>` : '-';
+      const annPost = p.annualDividendAfterTax !== null ? `${fmtUsd(p.annualDividendAfterTax)}<br><span style="font-size:11px;color:var(--text-muted)">${fmtJpy(p.annualDividendAfterTax * rate)}</span>` : '-';
+      const exDate = p.exDividendDate || '-';
+      const acct = accountLabels[p.account] || p.account;
+      return `<tr>
+        <td><strong>${p.ticker}</strong></td>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${p.shares.toLocaleString()}</td>
+        <td>${yld}</td>
+        <td>${dps}</td>
+        <td>${annPre}</td>
+        <td>${annPost}</td>
+        <td>${exDate}</td>
+        <td>${acct}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('dividend-body').innerHTML = rows;
+  }
+
   function escapeHtml(text) {
     const el = document.createElement('span');
     el.textContent = text;
@@ -1029,10 +1215,20 @@
     content.style.display = 'none';
 
     try {
-      const res = await fetch('/api/portfolio');
-      const data = await res.json();
+      const [portfolioRes, dividendRes] = await Promise.all([
+        fetch('/api/portfolio'),
+        fetch('/api/dividends'),
+      ]);
+      const data = await portfolioRes.json();
       if (data.error) throw new Error(data.error);
       renderPortfolio(data);
+
+      const divData = await dividendRes.json();
+      if (!divData.error) renderDividends(divData);
+
+      // チャートは非同期で読み込み（メインデータの表示をブロックしない）
+      loadChart();
+
       loading.style.display = 'none';
       content.style.display = 'block';
     } catch (e) {
@@ -1110,6 +1306,7 @@
       dividend_yield_above: '配当利回り超', per_below: 'PER割れ',
       pbr_below: 'PBR割れ', change_pct_above: '上昇率超', change_pct_below: '下落率超',
     };
+    // アラートルール
     const alertsHtml = data.alerts.filter(a => a.enabled).map(a => `
       <div class="alert-item">
         <span><strong>${a.ticker}</strong> ${a.name || ''}</span>
