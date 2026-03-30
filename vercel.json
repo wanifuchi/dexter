@@ -3,13 +3,13 @@
   "framework": null,
   "functions": {
     "api/chat.ts": { "maxDuration": 300, "includeFiles": "src/**" },
-    "api/health.ts": { "maxDuration": 10, "includeFiles": "src/**" },
-    "api/data.ts": { "maxDuration": 30, "includeFiles": "src/**,api/portfolio.ts,api/dividends.ts,api/watchlist.ts,api/snapshots.ts" },
+    "api/health.ts": { "maxDuration": 10 },
+    "api/data.ts": { "maxDuration": 30, "includeFiles": "src/**" },
     "api/backtest.ts": { "maxDuration": 60, "includeFiles": "src/**" },
     "api/paper-trade.ts": { "maxDuration": 30, "includeFiles": "src/**" },
     "api/line-webhook.ts": { "maxDuration": 10, "includeFiles": "src/**" },
     "api/auto-strategy-config.ts": { "maxDuration": 10, "includeFiles": "src/**" },
-    "api/cron/index.ts": { "maxDuration": 60, "includeFiles": "src/**,api/cron/*.ts" }
+    "api/cron/index.ts": { "maxDuration": 60, "includeFiles": "src/**" }
   },
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },

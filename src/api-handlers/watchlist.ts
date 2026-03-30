@@ -3,7 +3,7 @@
  * ウォッチリスト銘柄の現在価格付きデータを返す
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadWatchlist } from '../src/tools/trading/watchlist-store.js';
+import { loadWatchlist } from '../tools/trading/watchlist-store.js';
 
 export const maxDuration = 30;
 

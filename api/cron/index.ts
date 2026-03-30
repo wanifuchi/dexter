@@ -9,7 +9,6 @@ export const maxDuration = 60;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const job = (req.query.job as string) || '';
 
-  // Auth
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const authHeader = req.headers['authorization'];
@@ -20,22 +19,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   switch (job) {
     case 'scan-alerts': {
-      const mod = await import('./scan-alerts.js');
+      const mod = await import('../../src/api-handlers/scan-alerts.js');
       return mod.default(req, res);
     }
     case 'snapshot': {
-      const mod = await import('./snapshot.js');
+      const mod = await import('../../src/api-handlers/snapshot.js');
       return mod.default(req, res);
     }
     case 'news-alerts': {
-      const mod = await import('./news-alerts.js');
+      const mod = await import('../../src/api-handlers/news-alerts.js');
       return mod.default(req, res);
     }
     case 'auto-strategy': {
-      const mod = await import('./auto-strategy.js');
+      const mod = await import('../../src/api-handlers/auto-strategy.js');
       return mod.default(req, res);
     }
     default:
-      return res.status(400).json({ error: `Unknown job: ${job}. Use ?job=scan-alerts|snapshot|news-alerts|auto-strategy` });
+      return res.status(400).json({ error: `Unknown job: ${job}` });
   }
 }

@@ -4,7 +4,7 @@
  * パフォーマンスチャート用の時系列データを蓄積する。
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadPortfolio } from '../../src/tools/trading/portfolio-store.js';
+import { loadPortfolio } from '../tools/trading/portfolio-store.js';
 
 export const maxDuration = 30;
 

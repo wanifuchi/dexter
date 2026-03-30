@@ -4,9 +4,9 @@
  * 決算発表、アナリストレーティング変更、重大イベントを検知。
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadPortfolio } from '../../src/tools/trading/portfolio-store.js';
-import { loadWatchlist } from '../../src/tools/trading/watchlist-store.js';
-import { sendMessageLine, isLineAvailable } from '../../src/gateway/channels/line/index.js';
+import { loadPortfolio } from '../tools/trading/portfolio-store.js';
+import { loadWatchlist } from '../tools/trading/watchlist-store.js';
+import { sendMessageLine, isLineAvailable } from '../gateway/channels/line/index.js';
 
 export const maxDuration = 30;
 

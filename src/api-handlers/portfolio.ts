@@ -3,8 +3,8 @@
  * ポートフォリオの現在状況を返すAPI
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadPortfolio } from '../src/tools/trading/portfolio-store.js';
-import { loadAlertStore } from '../src/tools/trading/alert-store.js';
+import { loadPortfolio } from '../tools/trading/portfolio-store.js';
+import { loadAlertStore } from '../tools/trading/alert-store.js';
 
 export const maxDuration = 30;
 

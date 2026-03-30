@@ -8,16 +8,16 @@
  * CRON_SECRET で認証し、外部からの不正呼び出しを防止。
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadPortfolio } from '../../src/tools/trading/portfolio-store.js';
-import { loadAlertStore } from '../../src/tools/trading/alert-store.js';
+import { loadPortfolio } from '../tools/trading/portfolio-store.js';
+import { loadAlertStore } from '../tools/trading/alert-store.js';
 import {
   evaluateAlertRules,
   evaluatePortfolioSignals,
   collectWatchedTickers,
-} from '../../src/tools/trading/signal-detector.js';
-import type { TickerSnapshot } from '../../src/tools/trading/signal-detector.js';
-import type { Signal } from '../../src/tools/trading/types.js';
-import { sendMessageLine, isLineAvailable } from '../../src/gateway/channels/line/index.js';
+} from '../tools/trading/signal-detector.js';
+import type { TickerSnapshot } from '../tools/trading/signal-detector.js';
+import type { Signal } from '../tools/trading/types.js';
+import { sendMessageLine, isLineAvailable } from '../gateway/channels/line/index.js';
 
 export const maxDuration = 60;
 

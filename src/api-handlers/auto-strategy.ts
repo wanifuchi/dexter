@@ -4,10 +4,10 @@
  * 売買シグナルがあればLINE承認リクエストを送る
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadPaperAccount } from '../../src/trading/paper-engine.js';
-import { requestApproval, getPendingApprovals } from '../../src/trading/approval-engine.js';
-import type { PriceBar, PriceHistory, BacktestConfig, StrategyState } from '../../src/backtest/types.js';
-import { getStrategy } from '../../src/backtest/registry.js';
+import { loadPaperAccount } from '../trading/paper-engine.js';
+import { requestApproval, getPendingApprovals } from '../trading/approval-engine.js';
+import type { PriceBar, PriceHistory, BacktestConfig, StrategyState } from '../backtest/types.js';
+import { getStrategy } from '../backtest/registry.js';
 
 export const maxDuration = 30;
 
