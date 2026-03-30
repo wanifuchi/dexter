@@ -442,9 +442,12 @@
 
     /* 折りたたみ */
     .collapsible-section { margin-bottom: 16px; }
-    .collapsible-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px 0; -webkit-user-select: none; user-select: none; }
+    .collapsible-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 10px 14px; -webkit-user-select: none; user-select: none; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; transition: background 0.15s; }
+    .collapsible-header:hover { background: var(--bg-input); }
     .collapsible-header .chevron { transition: transform 0.2s; color: var(--text-muted); font-size: 12px; }
     .collapsible-header.open .chevron { transform: rotate(180deg); }
+    .collapsible-header.open { border-radius: 8px 8px 0 0; margin-bottom: 0; border-bottom-color: transparent; }
+    .collapsible-body.open { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; padding: 14px; }
     .collapsible-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
     .collapsible-body.open { max-height: 2000px; }
 
