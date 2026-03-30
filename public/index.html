@@ -688,6 +688,9 @@
           <tbody id="dividend-body"></tbody>
         </table>
       </div>
+      <div class="section-title">為替感応度分析</div>
+      <div id="fx-analysis" style="margin-bottom:20px"></div>
+
       <div class="section-title">ウォッチリスト</div>
       <div class="positions-table-wrap" style="margin-bottom:20px">
         <table class="positions-table">
@@ -1641,6 +1644,42 @@
     `;
   }
 
+  // --- 為替感応度分析 ---
+  function renderFxAnalysis(positions, usdJpy) {
+    const totalValueUsd = positions.reduce((s, p) => s + (p.marketValue || 0), 0);
+    const scenarios = [
+      { label: '円高 -20%', rate: usdJpy * 0.8 },
+      { label: '円高 -10%', rate: usdJpy * 0.9 },
+      { label: '現在', rate: usdJpy },
+      { label: '円安 +10%', rate: usdJpy * 1.1 },
+      { label: '円安 +20%', rate: usdJpy * 1.2 },
+    ];
+    const currentJpy = totalValueUsd * usdJpy;
+
+    const rows = scenarios.map(s => {
+      const jpy = totalValueUsd * s.rate;
+      const diff = jpy - currentJpy;
+      const diffPct = currentJpy > 0 ? (diff / currentJpy) * 100 : 0;
+      const isCurrent = s.rate === usdJpy;
+      const bold = isCurrent ? 'font-weight:700' : '';
+      return `<tr style="${bold}">
+        <td>${s.label}</td>
+        <td>¥${s.rate.toFixed(2)}</td>
+        <td>${fmtJpy(jpy)}</td>
+        <td>${isCurrent ? '-' : `<span class="${pnlClass(diff)}">${fmtJpy(diff)} (${fmtPct(diffPct)})</span>`}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('fx-analysis').innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">USD建てポートフォリオ ${fmtUsd(totalValueUsd)} の為替変動による円建て資産への影響</div>
+        <table class="positions-table">
+          <thead><tr><th>シナリオ</th><th>USD/JPY</th><th>円建て資産</th><th>差額</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
   // --- ソート・フィルター ---
   function applyPortfolioFilter() {
     const accountFilter = document.getElementById('pf-filter-account').value;
@@ -1918,6 +1957,9 @@
 
     // セクター分散分析
     renderSectorChart(data.positions);
+
+    // 為替感応度分析
+    renderFxAnalysis(data.positions, portfolioUsdJpy);
 
     // ポジションテーブル（初期表示）
     renderPositionsTable(data.positions);
