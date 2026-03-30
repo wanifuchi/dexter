@@ -151,7 +151,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.json({
       positions: enrichedPositions,
-      alerts: alertStore.rules,
+      alerts: alertStore.rules ?? [],
       summary: {
         totalCost,
         totalValue,

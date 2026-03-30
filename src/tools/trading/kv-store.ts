@@ -112,7 +112,15 @@ const ALERT_PATH = dexterPath('trading', 'alert-rules.json');
 const EMPTY_ALERT_STORE: AlertStore = { version: 1, rules: [] };
 
 export async function loadAlertStoreKV(): Promise<AlertStore> {
-  return kvGet<AlertStore>(ALERT_KEY, ALERT_PATH, EMPTY_ALERT_STORE);
+  const raw = await kvGet<AlertStore>(ALERT_KEY, ALERT_PATH, EMPTY_ALERT_STORE);
+  // Redisから返る値が {version, rules} ではなく直接 rules配列の場合に対応
+  if (Array.isArray(raw)) {
+    return { version: 1, rules: raw as any };
+  }
+  if (raw && typeof raw === 'object' && !raw.rules) {
+    return EMPTY_ALERT_STORE;
+  }
+  return raw;
 }
 
 export async function saveAlertStoreKV(store: AlertStore): Promise<void> {
