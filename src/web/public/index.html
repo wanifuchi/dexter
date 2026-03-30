@@ -1964,14 +1964,27 @@
     // ポジションテーブル（初期表示）
     renderPositionsTable(data.positions);
 
-    // アラートルール
+    // アラートルール（Redisコールドスタートで空になる場合があるのでリトライ）
+    renderAlertRules(data.alerts);
+    if (!data.alerts || data.alerts.length === 0) {
+      setTimeout(async () => {
+        try {
+          const retry = await fetch('/api/portfolio');
+          const retryData = await retry.json();
+          if (retryData.alerts && retryData.alerts.length > 0) renderAlertRules(retryData.alerts);
+        } catch {}
+      }, 2000);
+    }
+  }
+
+  function renderAlertRules(alerts) {
     const condLabels = {
       price_above: '上抜け', price_below: '下抜け',
       dividend_yield_above: '配当利回り超', per_below: 'PER割れ',
       pbr_below: 'PBR割れ', change_pct_above: '上昇率超', change_pct_below: '下落率超',
     };
-    // アラートルール
-    const alertsHtml = data.alerts.filter(a => a.enabled).map(a => `
+    const rules = (alerts || []).filter(a => a.enabled);
+    const alertsHtml = rules.map(a => `
       <div class="alert-item">
         <span><strong>${a.ticker}</strong> ${a.name || ''}</span>
         <span class="alert-cond">${condLabels[a.condition] || a.condition} ${a.threshold}</span>
