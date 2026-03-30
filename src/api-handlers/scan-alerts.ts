@@ -97,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 4. ポートフォリオ異常検出
     const portfolio = await loadPortfolio();
-    const portfolioSignals = evaluatePortfolioSignals(portfolio.positions, snapshots);
+    const portfolioSignals = await evaluatePortfolioSignals(portfolio.positions, snapshots);
 
     // 5. シグナル統合
     const allSignals = [...alertSignals, ...portfolioSignals];

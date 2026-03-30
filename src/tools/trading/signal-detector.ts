@@ -49,43 +49,84 @@ export async function evaluateAlertRules(
   return signals;
 }
 
+// クールダウンをRedisに保存（コールドスタート対策）
+async function getSignalRedis() {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const { Redis } = await import('@upstash/redis');
+    return new Redis({ url, token });
+  } catch { return null; }
+}
+
+async function isOnCooldown(key: string): Promise<boolean> {
+  const redis = await getSignalRedis();
+  if (!redis) return false;
+  try {
+    const val = await redis.get(`finx:cooldown:${key}`);
+    return val !== null;
+  } catch { return false; }
+}
+
+async function setCooldown(key: string, hours: number): Promise<void> {
+  const redis = await getSignalRedis();
+  if (!redis) return;
+  try {
+    await redis.set(`finx:cooldown:${key}`, '1', { ex: hours * 3600 });
+  } catch {}
+}
+
 /**
  * ポートフォリオ内の銘柄に対して基本的な異常検出を行う。
  * 注意: アラートルールが設定済みなら、そちらが優先。
  * この関数は「日次変動率」のみチェック（取得単価からの乖離は常時発火するため除外）。
+ * 同じ銘柄は24時間に1回のみ通知。
  */
-export function evaluatePortfolioSignals(
+export async function evaluatePortfolioSignals(
   positions: Position[],
   snapshots: Map<string, TickerSnapshot>,
-): Signal[] {
+): Promise<Signal[]> {
   const signals: Signal[] = [];
+
+  const highVolTickers = new Set(['SOXL', 'TQQQ', 'SPXL', 'IREN', 'CIFR', 'WULF', 'MARA', 'RIOT', 'CLSK']);
 
   for (const pos of positions) {
     const snap = snapshots.get(pos.ticker);
     if (!snap?.price || !snap?.previousClose) continue;
 
-    // 日次変動率が±8%を超えた場合のみ通知（異常な1日の動き）
+    // 銘柄ごとのボラティリティに応じた閾値
+    const threshold = highVolTickers.has(pos.ticker) ? 15 : 10;
     const dayChangePct = ((snap.price - snap.previousClose) / snap.previousClose) * 100;
 
-    if (dayChangePct <= -8) {
+    if (dayChangePct <= -threshold) {
+      // Redisクールダウンチェック（24時間に1回だけ通知）
+      const cooldownKey = `portfolio:${pos.ticker}:drop`;
+      if (await isOnCooldown(cooldownKey)) continue;
+
+      await setCooldown(cooldownKey, 24);
       signals.push({
         ticker: pos.ticker,
         name: pos.name,
         type: 'change_pct_below',
         currentValue: dayChangePct,
-        threshold: -8,
+        threshold: -threshold,
         message: `${pos.name}(${pos.ticker}) が本日 ${dayChangePct.toFixed(1)}% 急落（現在値: $${snap.price}, 前日終値: $${snap.previousClose}）`,
         triggeredAt: Date.now(),
       });
     }
 
-    if (dayChangePct >= 8) {
+    if (dayChangePct >= threshold) {
+      const cooldownKey = `portfolio:${pos.ticker}:surge`;
+      if (await isOnCooldown(cooldownKey)) continue;
+
+      await setCooldown(cooldownKey, 24);
       signals.push({
         ticker: pos.ticker,
         name: pos.name,
         type: 'change_pct_above',
         currentValue: dayChangePct,
-        threshold: 8,
+        threshold,
         message: `${pos.name}(${pos.ticker}) が本日 ${dayChangePct.toFixed(1)}% 急騰（現在値: $${snap.price}, 前日終値: $${snap.previousClose}）`,
         triggeredAt: Date.now(),
       });
