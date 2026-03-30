@@ -1015,7 +1015,10 @@
     'rakuten-tokutei': '楽天 特定',
   };
 
+  let portfolioUsdJpy = 150;
   function fmtUsd(n) { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function fmtJpy(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
+  function fmtBoth(usd) { return fmtUsd(usd) + ' <span style="color:var(--text-muted);font-size:0.8em">(' + fmtJpy(usd * portfolioUsdJpy) + ')</span>'; }
   function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
   function pnlClass(n) { return n >= 0 ? 'pnl-pos' : 'pnl-neg'; }
 
@@ -1038,24 +1041,30 @@
   }
 
   function renderPortfolio(data) {
+    portfolioUsdJpy = data.usdJpy || 150;
+
     // サマリーカード
     const s = data.summary;
     document.getElementById('summary-cards').innerHTML = `
       <div class="summary-card">
         <div class="label">時価総額</div>
-        <div class="value">${fmtUsd(s.totalValue)}</div>
+        <div class="value">${fmtJpy(s.totalValue * portfolioUsdJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(s.totalValue)}</div>
       </div>
       <div class="summary-card">
         <div class="label">投資元本</div>
-        <div class="value">${fmtUsd(s.totalCost)}</div>
+        <div class="value">${fmtJpy(s.totalCost * portfolioUsdJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(s.totalCost)}</div>
       </div>
       <div class="summary-card">
         <div class="label">含み損益</div>
-        <div class="value ${pnlClass(s.totalPnl)}">${fmtUsd(s.totalPnl)}</div>
+        <div class="value ${pnlClass(s.totalPnl)}">${fmtJpy(s.totalPnl * portfolioUsdJpy)}</div>
+        <div style="font-size:12px" class="${pnlClass(s.totalPnl)}">${fmtUsd(s.totalPnl)}</div>
       </div>
       <div class="summary-card">
         <div class="label">損益率</div>
         <div class="value ${pnlClass(s.totalPnlPct)}">${fmtPct(s.totalPnlPct)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">$1 = ¥${portfolioUsdJpy.toFixed(2)}</div>
       </div>
     `;
 
@@ -1066,8 +1075,8 @@
       return `
         <div class="account-card">
           <div class="acct-name">${accountLabels[key] || key}（${a.count}銘柄）</div>
-          <div class="acct-value">${fmtUsd(a.value)}</div>
-          <div class="acct-pnl ${pnlClass(pnl)}">${fmtUsd(pnl)} (${fmtPct(pnlPct)})</div>
+          <div class="acct-value">${fmtJpy(a.value * portfolioUsdJpy)}</div>
+          <div class="acct-pnl ${pnlClass(pnl)}">${fmtJpy(pnl * portfolioUsdJpy)} (${fmtPct(pnlPct)})</div>
         </div>
       `;
     }).join('');
@@ -1076,8 +1085,8 @@
     // ポジションテーブル
     const rows = data.positions.map(p => {
       const price = p.currentPrice !== null ? fmtUsd(p.currentPrice) : '-';
-      const mv = p.marketValue !== null ? fmtUsd(p.marketValue) : '-';
-      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}</span>` : '-';
+      const mv = p.marketValue !== null ? `${fmtUsd(p.marketValue)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(p.marketValue * portfolioUsdJpy)}</span>` : '-';
+      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span></span>` : '-';
       const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
       const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
       return `<tr>

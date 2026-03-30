@@ -41,9 +41,14 @@ async function kvGet<T>(key: string, fallbackPath: string, defaultValue: T): Pro
   const redis = await getRedis();
   if (redis) {
     try {
-      const data = await redis.get(key);
+      let data = await redis.get(key);
       if (data !== null && data !== undefined) {
-        return (typeof data === 'string' ? JSON.parse(data) : data) as T;
+        // Upstash SDKは自動パースする場合としない場合がある
+        // 二重JSON文字列の場合も対応
+        while (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch { break; }
+        }
+        return data as T;
       }
     } catch {
       // Redis失敗 → ファイルフォールバック

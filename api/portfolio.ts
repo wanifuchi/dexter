@@ -54,6 +54,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       loadAlertStore(),
     ]);
 
+    // USD/JPY為替レート取得
+    let usdJpy = 150; // フォールバック
+    try {
+      const fxRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X?range=1d&interval=1d', {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      if (fxRes.ok) {
+        const fxJson = await fxRes.json() as any;
+        const rate = fxJson?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (typeof rate === 'number') usdJpy = rate;
+      }
+    } catch {}
+
     // ユニークなtickerを収集して株価取得
     const tickers = [...new Set(portfolio.positions.map((p) => p.ticker))];
     const prices = await Promise.all(tickers.map(fetchPrice));
@@ -121,6 +134,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         positionCount: enrichedPositions.length,
       },
       accountSummary,
+      usdJpy,
       updatedAt: Date.now(),
     });
   } catch (error) {
