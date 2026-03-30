@@ -21,6 +21,22 @@
       --border-light: #E8E4DC;
     }
 
+    [data-theme="dark"] {
+      --bg: #1A1A1A;
+      --bg-card: #252525;
+      --bg-input: #2E2E2E;
+      --bg-user: #3A3A3A;
+      --text: #E8E4DC;
+      --text-sub: #B0ACA4;
+      --text-muted: #7A766E;
+      --accent: #C4A06A;
+      --accent-light: #3A3226;
+      --green: #4CAF50;
+      --red: #EF5350;
+      --border: #3A3A3A;
+      --border-light: #333333;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -543,6 +559,7 @@
     <button class="nav-btn" onclick="showPage('history')" id="nav-history">履歴</button>
     <button class="nav-btn" onclick="showPage('portfolio')" id="nav-portfolio">ポートフォリオ</button>
     <button class="nav-btn" onclick="showPage('backtest')" id="nav-backtest">バックテスト</button>
+    <button type="button" class="nav-btn" onclick="toggleTheme()" id="theme-toggle" title="ダークモード切替">🌙</button>
     <span class="status-text" id="model-name"></span>
   </div>
 </header>
@@ -726,6 +743,23 @@
 </div>
 
 <script>
+  // ダークモード
+  function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? '' : 'dark');
+    document.getElementById('theme-toggle').textContent = isDark ? '🌙' : '☀️';
+    localStorage.setItem('finx_theme', isDark ? 'light' : 'dark');
+  }
+  // 初期化: 保存済みテーマを復元
+  (function() {
+    const saved = localStorage.getItem('finx_theme');
+    if (saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('theme-toggle').textContent = '☀️';
+    }
+  })();
+
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');

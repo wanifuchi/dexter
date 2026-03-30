@@ -78,7 +78,7 @@ function formatNewsAlert(items: NewsItem[]): string {
 
   const header = `📰 Finx ニュースアラート (${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })})`;
   const lines = items.map(n =>
-    `${typeLabels[n.type]} [${n.ticker}] ${n.title}\n  ${n.publisher} | ${n.publishedAt.slice(0, 10)}`
+    `${typeLabels[n.type]} [${n.ticker}] ${n.title}\n  ${n.publisher} | ${n.publishedAt.slice(0, 10)}\n  ${n.link}`
   );
   return [header, '', ...lines].join('\n');
 }
