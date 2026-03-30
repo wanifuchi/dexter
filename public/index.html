@@ -1498,9 +1498,10 @@
 
   function renderPositionsTable(positions) {
     const rows = positions.map(p => {
-      const price = p.currentPrice !== null ? fmtUsd(p.currentPrice) : '-';
-      const mv = p.marketValue !== null ? `${fmtUsd(p.marketValue)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(p.marketValue * portfolioUsdJpy)}</span>` : '-';
-      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span></span>` : '-';
+      const jp = isJpTicker(p.ticker);
+      const price = p.currentPrice !== null ? fmtPrice(p.currentPrice, p.ticker) : '-';
+      const mv = p.marketValue !== null ? fmtValue(p.marketValue, p.ticker) : '-';
+      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${jp ? fmtJpy(p.pnl) : `${fmtUsd(p.pnl)}<br><span style="font-size:11px">${fmtJpy(p.pnl * portfolioUsdJpy)}</span>`}</span>` : '-';
       const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
       const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
       let rsiHtml = '-';
@@ -1517,7 +1518,7 @@
         <td><strong>${p.ticker}</strong></td>
         <td>${escapeHtml(p.name)}</td>
         <td>${p.shares.toLocaleString()}</td>
-        <td>${fmtUsd(p.avgCost)}</td>
+        <td>${fmtPrice(p.avgCost, p.ticker)}</td>
         <td>${price}</td>
         <td>${mv}</td>
         <td>${pnl}</td>
@@ -1661,9 +1662,14 @@
   };
 
   let portfolioUsdJpy = 150;
+  function isJpTicker(ticker) { return /^\d{4}$/.test(ticker); }
   function fmtUsd(n) { return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fmtJpy(n) { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
-  function fmtBoth(usd) { return fmtUsd(usd) + ' <span style="color:var(--text-muted);font-size:0.8em">(' + fmtJpy(usd * portfolioUsdJpy) + ')</span>'; }
+  function fmtPrice(n, ticker) { return isJpTicker(ticker) ? fmtJpy(n) : fmtUsd(n); }
+  function fmtValue(n, ticker) {
+    if (isJpTicker(ticker)) return fmtJpy(n);
+    return `${fmtUsd(n)}<br><span style="color:var(--text-muted);font-size:11px">${fmtJpy(n * portfolioUsdJpy)}</span>`;
+  }
   function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
   function pnlClass(n) { return n >= 0 ? 'pnl-pos' : 'pnl-neg'; }
 

@@ -13,6 +13,7 @@ import { bollingerBounce } from './strategies/bollinger-bounce.js';
 import { dualMomentum } from './strategies/dual-momentum.js';
 import { volatilityBreakout } from './strategies/volatility-breakout.js';
 import { atrTrailingStop } from './strategies/atr-trailing-stop.js';
+import { drip } from './strategies/drip.js';
 
 const strategies: Strategy[] = [
   buyAndHold,
@@ -25,6 +26,7 @@ const strategies: Strategy[] = [
   dualMomentum,
   volatilityBreakout,
   atrTrailingStop,
+  drip,
 ];
 
 export function getStrategies(): Strategy[] {
