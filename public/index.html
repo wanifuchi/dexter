@@ -559,6 +559,7 @@
     <button class="nav-btn" onclick="showPage('history')" id="nav-history">履歴</button>
     <button class="nav-btn" onclick="showPage('portfolio')" id="nav-portfolio">ポートフォリオ</button>
     <button class="nav-btn" onclick="showPage('backtest')" id="nav-backtest">バックテスト</button>
+    <button class="nav-btn" onclick="showPage('paper')" id="nav-paper">ペーパー</button>
     <button type="button" class="nav-btn" onclick="toggleTheme()" id="theme-toggle" title="ダークモード切替">🌙</button>
     <span class="status-text" id="model-name"></span>
   </div>
@@ -700,6 +701,50 @@
   </div>
 </div>
 
+<!-- ペーパートレードページ -->
+<div class="page" id="paper-page">
+  <div class="portfolio-container">
+    <div class="section-title">ペーパートレード</div>
+    <div class="portfolio-loading" id="paper-loading">読み込み中...</div>
+    <div id="paper-content" style="display:none">
+      <div class="summary-cards" id="paper-summary"></div>
+
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">新規注文</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">銘柄</div><input id="pp-ticker" type="text" placeholder="NVDA" style="width:80px;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:13px;background:var(--bg);font-family:inherit"></div>
+          <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">株数</div><input id="pp-shares" type="number" value="10" min="1" style="width:70px;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:13px;background:var(--bg);font-family:inherit"></div>
+          <div><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">注文種別</div><select id="pp-type" style="padding:6px;border:1px solid var(--border);border-radius:4px;font-size:13px;background:var(--bg);font-family:inherit" onchange="document.getElementById('pp-limit-wrap').style.display=this.value==='limit'?'block':'none'"><option value="market">成行</option><option value="limit">指値</option></select></div>
+          <div id="pp-limit-wrap" style="display:none"><div class="label" style="font-size:11px;color:var(--text-muted);margin-bottom:2px">指値($)</div><input id="pp-limit" type="number" step="0.01" style="width:90px;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:13px;background:var(--bg);font-family:inherit"></div>
+          <button type="button" onclick="paperOrder('buy')" style="padding:6px 16px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit">買い</button>
+          <button type="button" onclick="paperOrder('sell')" style="padding:6px 16px;background:#dc2626;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit">売り</button>
+          <button type="button" onclick="paperReset()" style="padding:6px 12px;background:var(--bg-input);color:var(--text-sub);border:1px solid var(--border);border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit">リセット</button>
+        </div>
+        <div id="pp-status" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div>
+      </div>
+
+      <div class="section-title">ポジション</div>
+      <div class="positions-table-wrap" style="margin-bottom:16px">
+        <table class="positions-table">
+          <thead><tr><th>銘柄</th><th>株数</th><th>取得単価</th><th>現在値</th><th>時価</th><th>損益</th><th>損益率</th></tr></thead>
+          <tbody id="paper-positions"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">未約定注文</div>
+      <div class="alerts-list" id="paper-pending" style="margin-bottom:16px"></div>
+
+      <div class="section-title">約定履歴（直近20件）</div>
+      <div class="positions-table-wrap">
+        <table class="positions-table">
+          <thead><tr><th>日時</th><th>銘柄</th><th>売買</th><th>株数</th><th>価格</th><th>金額</th><th>状態</th></tr></thead>
+          <tbody id="paper-orders"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- バックテストページ -->
 <div class="page" id="backtest-page">
   <div class="portfolio-container">
@@ -808,6 +853,7 @@
     if (page === 'history') renderHistory();
     if (page === 'portfolio') loadPortfolioPage();
     if (page === 'backtest') initBacktestPage();
+    if (page === 'paper') loadPaperPage();
   }
 
   // テキストエリア自動リサイズ
@@ -1270,6 +1316,126 @@
       &nbsp;&nbsp;<span style="color:var(--text-muted)">基準=100</span>
     `;
     legendEl.style.display = 'block';
+  }
+
+  // --- ペーパートレード ---
+  async function loadPaperPage() {
+    const loading = document.getElementById('paper-loading');
+    const content = document.getElementById('paper-content');
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    try {
+      const res = await fetch('/api/paper-trade');
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      renderPaper(data);
+      loading.style.display = 'none';
+      content.style.display = 'block';
+    } catch (e) {
+      loading.textContent = 'ペーパートレードの読み込みに失敗: ' + e.message;
+    }
+  }
+
+  function renderPaper(data) {
+    document.getElementById('paper-summary').innerHTML = `
+      <div class="summary-card">
+        <div class="label">資産総額</div>
+        <div class="value">${fmtUsd(data.equity)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">現金</div>
+        <div class="value">${fmtUsd(data.cash)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">含み損益</div>
+        <div class="value ${pnlClass(data.totalPnl)}">${fmtUsd(data.totalPnl)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">損益率</div>
+        <div class="value ${pnlClass(data.totalPnlPct)}">${fmtPct(data.totalPnlPct)}</div>
+      </div>
+    `;
+
+    // ポジション
+    const posRows = (data.positions || []).map(p => `<tr>
+      <td><strong>${p.ticker}</strong></td>
+      <td>${p.shares}</td>
+      <td>${fmtUsd(p.avgCost)}</td>
+      <td>${p.currentPrice !== null ? fmtUsd(p.currentPrice) : '-'}</td>
+      <td>${p.marketValue !== null ? fmtUsd(p.marketValue) : '-'}</td>
+      <td>${p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtUsd(p.pnl)}</span>` : '-'}</td>
+      <td>${p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-'}</td>
+    </tr>`).join('');
+    document.getElementById('paper-positions').innerHTML = posRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">ポジションなし</td></tr>';
+
+    // 未約定注文
+    const pending = (data.pendingOrders || []).map(o => `
+      <div class="alert-item">
+        <span><strong>${o.ticker}</strong> ${o.side === 'buy' ? '買' : '売'} ${o.shares}株 @ $${o.limitPrice}</span>
+        <button type="button" onclick="paperCancel('${o.id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--bg);cursor:pointer;font-family:inherit">取消</button>
+      </div>
+    `).join('');
+    document.getElementById('paper-pending').innerHTML = pending || '<div style="font-size:12px;color:var(--text-muted)">未約定注文なし</div>';
+
+    // 約定履歴
+    const orderRows = (data.recentOrders || []).map(o => {
+      const statusLabel = { filled: '約定', pending: '待機', cancelled: '取消', expired: '期限切' };
+      const time = o.filledAt ? new Date(o.filledAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : new Date(o.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      return `<tr>
+        <td style="font-size:11px">${time}</td>
+        <td><strong>${o.ticker}</strong></td>
+        <td class="${o.side === 'buy' ? 'pnl-pos' : 'pnl-neg'}">${o.side === 'buy' ? '買' : '売'}</td>
+        <td>${o.shares}</td>
+        <td>${o.filledPrice ? fmtUsd(o.filledPrice) : (o.limitPrice ? fmtUsd(o.limitPrice) : '-')}</td>
+        <td>${o.filledPrice ? fmtUsd(o.shares * o.filledPrice) : '-'}</td>
+        <td style="font-size:11px">${statusLabel[o.status] || o.status}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('paper-orders').innerHTML = orderRows || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">取引履歴なし</td></tr>';
+  }
+
+  async function paperOrder(side) {
+    const ticker = document.getElementById('pp-ticker').value.trim().toUpperCase();
+    const shares = parseInt(document.getElementById('pp-shares').value);
+    const orderType = document.getElementById('pp-type').value;
+    const limitPrice = parseFloat(document.getElementById('pp-limit').value) || undefined;
+    const status = document.getElementById('pp-status');
+
+    if (!ticker || !shares) { status.textContent = '銘柄と株数を入力してください'; return; }
+    status.textContent = '発注中...';
+
+    try {
+      const res = await fetch('/api/paper-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: side, ticker, shares, orderType, limitPrice }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      status.textContent = `${side === 'buy' ? '買' : '売'}注文完了: ${ticker} ${shares}株`;
+      loadPaperPage();
+    } catch (e) {
+      status.textContent = 'エラー: ' + e.message;
+    }
+  }
+
+  async function paperCancel(orderId) {
+    await fetch('/api/paper-trade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel', orderId }),
+    });
+    loadPaperPage();
+  }
+
+  async function paperReset() {
+    if (!confirm('ペーパーアカウントをリセットしますか？全ポジションと履歴が消えます。')) return;
+    await fetch('/api/paper-trade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset' }),
+    });
+    loadPaperPage();
   }
 
   // --- バックテスト ---

@@ -14,7 +14,8 @@
     { "source": "/api/dividends", "destination": "/api/dividends" },
     { "source": "/api/snapshots", "destination": "/api/snapshots" },
     { "source": "/api/backtest", "destination": "/api/backtest" },
-    { "source": "/api/watchlist", "destination": "/api/watchlist" }
+    { "source": "/api/watchlist", "destination": "/api/watchlist" },
+    { "source": "/api/paper-trade", "destination": "/api/paper-trade" }
   ],
   "crons": [
     {
