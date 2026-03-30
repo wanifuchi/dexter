@@ -623,6 +623,7 @@
 
   <div class="input-area">
     <div class="input-wrapper">
+      <button type="button" title="新しい会話" onclick="newConversation()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 8px;cursor:pointer;color:var(--text-muted);font-size:14px;flex-shrink:0">+</button>
       <textarea id="input" rows="1" placeholder="質問を入力 (Shift+Enterで送信)" autofocus></textarea>
       <button type="button" id="send-btn" title="送信" onclick="sendMessage()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -951,7 +952,12 @@
   const modelNameEl = document.getElementById('model-name');
 
   let isProcessing = false;
-  let sessionId = 'web-' + Date.now().toString(36);
+  // セッションIDをlocalStorageに永続化（ページリロードでも会話が続く）
+  let sessionId = localStorage.getItem('finx_session_id');
+  if (!sessionId) {
+    sessionId = 'web-' + Date.now().toString(36);
+    localStorage.setItem('finx_session_id', sessionId);
+  }
 
   // ヘルスチェック
   fetch('/api/health')
@@ -1460,6 +1466,13 @@
   }
 
   // --- 銘柄詳細（チャットで分析） ---
+  function newConversation() {
+    sessionId = 'web-' + Date.now().toString(36);
+    localStorage.setItem('finx_session_id', sessionId);
+    messagesEl.innerHTML = '';
+    welcomeEl.style.display = 'flex';
+  }
+
   function analyzeStock(ticker) {
     showPage('chat');
     inputEl.value = `${ticker}の最新の財務状況、テクニカル分析、今後の見通しを総合的に分析して`;
