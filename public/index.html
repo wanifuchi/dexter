@@ -56,13 +56,12 @@
     header {
       display: flex;
       align-items: center;
-      padding: 10px 12px;
+      justify-content: space-between;
+      padding: 10px 20px;
       padding-top: calc(10px + env(safe-area-inset-top, 0px));
       border-bottom: 1px solid var(--border);
       background: var(--bg-card);
       flex-shrink: 0;
-      gap: 8px;
-      overflow-x: auto;
     }
 
     .header-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -591,9 +590,10 @@
       .summary-cards { grid-template-columns: repeat(2, 1fr); }
       .account-cards { flex-direction: column; }
       .pf-tab { padding: 8px 10px; font-size: 12px; }
-      header { padding: 8px 10px; gap: 6px; }
-      .nav-btn { padding: 4px 8px; font-size: 11px; }
+      header { padding: 8px 10px; gap: 6px; overflow-x: auto; }
+      .nav-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
       .logo-text { font-size: 15px; }
+      .header-left { flex-shrink: 0; }
       .status-text { display: none; }
     }
   </style>
