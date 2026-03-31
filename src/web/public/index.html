@@ -56,14 +56,18 @@
     header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: 10px 20px;
+      padding: 10px 12px;
       border-bottom: 1px solid var(--border);
       background: var(--bg-card);
       flex-shrink: 0;
+      gap: 8px;
+      overflow-x: auto;
     }
 
-    .header-left { display: flex; align-items: center; gap: 10px; }
+    .header-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+    .header-right { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .header-right::-webkit-scrollbar { display: none; }
 
     .logo-link {
       cursor: pointer;
@@ -105,7 +109,7 @@
       display: flex;
     }
 
-    .header-right { display: flex; align-items: center; gap: 12px; }
+    .header-right { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 
     .nav-btn {
       background: none;
@@ -586,6 +590,10 @@
       .summary-cards { grid-template-columns: repeat(2, 1fr); }
       .account-cards { flex-direction: column; }
       .pf-tab { padding: 8px 10px; font-size: 12px; }
+      header { padding: 8px 10px; gap: 6px; }
+      .nav-btn { padding: 4px 8px; font-size: 11px; }
+      .logo-text { font-size: 15px; }
+      .status-text { display: none; }
     }
   </style>
 </head>
