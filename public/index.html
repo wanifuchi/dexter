@@ -705,6 +705,7 @@
             <thead>
               <tr>
                 <th>銘柄</th>
+                <th>株数</th>
                 <th>現在値</th>
                 <th>損益率</th>
                 <th>日次</th>
@@ -2204,6 +2205,7 @@
       }
       return `<tr>
         <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="toggleMiniChart(this,'${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
+        <td><input type="number" min="0" value="${p.shares}" data-ticker="${p.ticker}" data-account="${p.account}" data-avg-cost="${p.avgCost}" data-price="${p.currentPrice ?? ''}" class="shares-input" onchange="updateShares(this)" onfocus="this.select()" style="width:60px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
         <td>${price}</td>
         <td>${pnlPct}</td>
         <td>${day}</td>
@@ -2215,6 +2217,117 @@
       </tr>`;
     }).join('');
     document.getElementById('positions-body').innerHTML = rows;
+  }
+
+  // --- 株数編集・再計算 ---
+  async function updateShares(input) {
+    const ticker = input.dataset.ticker;
+    const account = input.dataset.account;
+    const newShares = parseInt(input.value);
+    const avgCost = parseFloat(input.dataset.avgCost);
+    const currentPrice = input.dataset.price ? parseFloat(input.dataset.price) : null;
+
+    if (isNaN(newShares) || newShares < 0) {
+      input.style.borderColor = '#ef4444';
+      return;
+    }
+
+    input.style.borderColor = 'var(--accent)';
+    input.disabled = true;
+
+    try {
+      const res = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, account, shares: newShares }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || '更新失敗');
+
+      // ローカルデータを即座に更新して再描画
+      const pos = portfolioPositions.find(p => p.ticker === ticker && p.account === account);
+      if (pos) {
+        pos.shares = newShares;
+        if (currentPrice !== null) {
+          pos.marketValue = currentPrice * newShares;
+          pos.costBasis = avgCost * newShares;
+          pos.pnl = pos.marketValue - pos.costBasis;
+          pos.pnlPct = avgCost > 0 ? ((currentPrice - avgCost) / avgCost) * 100 : 0;
+        }
+      }
+
+      // サマリーも再計算
+      recalcPortfolioSummary();
+      applyPortfolioFilter();
+
+      input.style.borderColor = '#10b981';
+      setTimeout(() => { input.style.borderColor = 'var(--border)'; }, 1500);
+    } catch (e) {
+      input.style.borderColor = '#ef4444';
+      console.error('株数更新エラー:', e);
+      setTimeout(() => { input.style.borderColor = 'var(--border)'; }, 2000);
+    } finally {
+      input.disabled = false;
+    }
+  }
+
+  function recalcPortfolioSummary() {
+    let totalCost = 0, totalValue = 0;
+    for (const p of portfolioPositions) {
+      if (p.marketValue !== null) {
+        totalCost += p.avgCost * p.shares;
+        totalValue += p.marketValue;
+      }
+    }
+    const totalPnl = totalValue - totalCost;
+    const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+    document.getElementById('summary-cards').innerHTML = `
+      <div class="summary-card">
+        <div class="label">時価総額</div>
+        <div class="value">${fmtJpy(totalValue * portfolioUsdJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(totalValue)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">投資元本</div>
+        <div class="value">${fmtJpy(totalCost * portfolioUsdJpy)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtUsd(totalCost)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">含み損益</div>
+        <div class="value ${pnlClass(totalPnl)}">${fmtJpy(totalPnl * portfolioUsdJpy)}</div>
+        <div style="font-size:12px" class="${pnlClass(totalPnl)}">${fmtUsd(totalPnl)}</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">損益率</div>
+        <div class="value ${pnlClass(totalPnlPct)}">${fmtPct(totalPnlPct)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">$1 = ¥${portfolioUsdJpy.toFixed(2)}</div>
+      </div>
+    `;
+
+    // 口座別カードも再計算
+    const acctData = {};
+    for (const p of portfolioPositions) {
+      if (!acctData[p.account]) acctData[p.account] = { cost: 0, value: 0, count: 0 };
+      acctData[p.account].count++;
+      acctData[p.account].cost += p.avgCost * p.shares;
+      if (p.marketValue !== null) acctData[p.account].value += p.marketValue;
+    }
+    const acctHtml = Object.entries(acctData).map(([key, a]) => {
+      const pnl = a.value - a.cost;
+      const pnlPct = a.cost > 0 ? (pnl / a.cost) * 100 : 0;
+      return `
+        <div class="account-card">
+          <div class="acct-name">${accountLabels[key] || key}（${a.count}銘柄）</div>
+          <div class="acct-value">${fmtJpy(a.value * portfolioUsdJpy)}</div>
+          <div class="acct-pnl ${pnlClass(pnl)}">${fmtJpy(pnl * portfolioUsdJpy)} (${fmtPct(pnlPct)})</div>
+        </div>`;
+    }).join('');
+    document.getElementById('account-cards').innerHTML = acctHtml;
+
+    // セクター分析も再計算
+    renderSectorChart(portfolioPositions);
+    renderAttributionChart(portfolioPositions);
   }
 
   // --- セクター分散分析 ---

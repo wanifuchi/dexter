@@ -16,6 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   switch (type) {
     case 'portfolio': {
+      if (req.method === 'POST') {
+        const mod = await import('../src/api-handlers/update-shares.js');
+        return mod.default(req, res);
+      }
       const mod = await import('../src/api-handlers/portfolio.js');
       return mod.default(req, res);
     }
