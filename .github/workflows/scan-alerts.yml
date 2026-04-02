@@ -15,10 +15,14 @@ jobs:
     steps:
       - name: Trigger alert scan
         run: |
-          curl -s -X GET \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/scan-alerts" \
-            | jq .
+            "${{ secrets.FINX_URL }}/api/cron/scan-alerts")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
@@ -28,10 +32,14 @@ jobs:
     steps:
       - name: Run auto strategy
         run: |
-          curl -s -X GET \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/auto-strategy" \
-            | jq .
+            "${{ secrets.FINX_URL }}/api/cron/auto-strategy")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
@@ -43,10 +51,14 @@ jobs:
         run: |
           MINUTE=$(date -u +%M)
           if [ "$MINUTE" -lt "5" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            curl -s -X GET \
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-              "${{ secrets.FINX_URL }}/api/cron/news-alerts" \
-              | jq .
+              "${{ secrets.FINX_URL }}/api/cron/news-alerts")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            echo "HTTP $HTTP_CODE"
+            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
           else
             echo "Skipping news check (runs only at :00-:04 each hour)"
           fi

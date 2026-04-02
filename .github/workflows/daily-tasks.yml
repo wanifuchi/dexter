@@ -16,10 +16,14 @@ jobs:
     steps:
       - name: Check upcoming earnings
         run: |
-          curl -s -X GET \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/earnings-calendar" \
-            | jq .
+            "${{ secrets.FINX_URL }}/api/cron/earnings-calendar")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
@@ -30,10 +34,14 @@ jobs:
     steps:
       - name: Check economic indicators
         run: |
-          curl -s -X GET \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/economic-alerts" \
-            | jq .
+            "${{ secrets.FINX_URL }}/api/cron/economic-alerts")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
@@ -44,9 +52,13 @@ jobs:
     steps:
       - name: Send weekly report
         run: |
-          curl -s -X GET \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/weekly-report" \
-            | jq .
+            "${{ secrets.FINX_URL }}/api/cron/weekly-report")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
