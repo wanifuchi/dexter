@@ -461,7 +461,7 @@
 
     /* ツールチップ */
     .tooltip-trigger { position: relative; cursor: help; border-bottom: 1px dotted var(--text-muted); }
-    .tooltip-trigger::after { content: attr(data-tooltip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--bg-user); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 400; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s; z-index: 50; }
+    .tooltip-trigger::after { content: attr(data-tooltip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--bg-user); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 400; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s; z-index: 50; }
     .tooltip-trigger:hover::after { opacity: 1; visibility: visible; }
 
     /* 損益カラー段階 */
@@ -525,6 +525,7 @@
     }
     .positions-table-wrap {
       overflow-x: auto;
+      overflow-y: visible;
       margin-bottom: 20px;
     }
     .positions-table {
