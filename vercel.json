@@ -28,7 +28,8 @@
     { "source": "/api/cron/news-alerts", "destination": "/api/cron?job=news-alerts" },
     { "source": "/api/cron/auto-strategy", "destination": "/api/cron?job=auto-strategy" },
     { "source": "/api/cron/economic-alerts", "destination": "/api/cron?job=economic-alerts" },
-    { "source": "/api/cron/weekly-report", "destination": "/api/cron?job=weekly-report" }
+    { "source": "/api/cron/weekly-report", "destination": "/api/cron?job=weekly-report" },
+    { "source": "/api/cron/earnings-calendar", "destination": "/api/cron?job=earnings-calendar" }
   ],
   "crons": [
     {

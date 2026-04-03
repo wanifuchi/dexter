@@ -1108,10 +1108,16 @@
     scrollToBottom();
   }
 
+  // HTMLエスケープ
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   // マークダウン簡易パーサー
   function renderMarkdown(text) {
     if (!text) return '';
-    return text
+    // 先にHTMLエスケープしてからMarkdown変換（XSS防止）
+    return escapeHtml(text)
       .replace(/^\|(.+)\|\s*\n\|[-:|  ]+\|\s*\n((?:\|.+\|\s*\n?)*)/gm, (_, header, rows) => {
         const ths = header.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
         const trs = rows.trim().split('\n').map(row => {
