@@ -217,6 +217,17 @@ finx:cooldown:*          — アラートクールダウン（TTL 24h）
 - [ ] LINE Webhook URL未設定（LINE Developersコンソールで `https://finx-psi.vercel.app/api/line-webhook` を設定すれば承認ワークフローが動く）
 - [ ] パフォーマンスチャートはデータ蓄積中（2日以上で表示開始）
 
+## セキュリティレビュー（2026-04-03 Codex指摘）
+
+### 対応済み
+- [x] **XSSサニタイズ** — `renderMarkdown()`にHTMLエスケープ追加。innerHTML注入を防止（`6a2d6ff`）
+- [x] **earnings-calendar rewrite** — vercel.jsonに追加。今まで404だったcronジョブが正常動作するように（`6a2d6ff`）
+
+### 未対応（URL非公開の個人利用のため保留）
+- [ ] **API認証なし（High）** — `/api/data`, `/api/paper-trade`, `/api/auto-strategy-config` が `CORS: *` で認証なし。Basic認証 or Bearerトークン追加で対応可能だが、フロント・GitHub Actions cron・Vercel環境変数の同時変更が必要。公開や他人共有する前には必須
+- [ ] **LINE webhook署名検証なし（High）** — `x-line-signature`未検証。webhook URLを知っていれば偽POSTで承認フローを操作可能。`@line/bot-sdk`の`validateSignature`で対応。`LINE_CHANNEL_SECRET`環境変数が必要
+- [ ] **承認フローuserId未使用（Medium）** — `event.source.userId`を取得しているが使っていない。マルチユーザー化する際に対応必要。single-userなら署名検証でカバー可能
+
 ## ロードマップ
 
 ### 直近（自分で使い倒す期間 〜2026年6月）
