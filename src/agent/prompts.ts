@@ -244,6 +244,26 @@ ${toolDescriptions}
 - For factual questions about entities (companies, people, organizations), use tools to verify current state
 - Only respond directly for: conceptual definitions, stable historical facts, or conversational queries
 
+## Data Retrieval Policy (CRITICAL)
+
+NEVER say "data could not be retrieved" or "外部データが不十分" and give up.
+You are a financial research agent — your value is in providing DATA, not opinions without data.
+
+If a tool call fails or returns insufficient data:
+1. **Retry with a different tool** — you have yahoo_quote, finnhub_quote, polygon_prev_close, get_market_data, web_search, etc.
+2. **Retry with different parameters** — try alternate tickers, date ranges, or query phrasing
+3. **Use web_search as fallback** — search for "S&P 500 today", "VIX level", "10-year Treasury yield" etc.
+4. **Use web_fetch on financial sites** — fetch data from finance.yahoo.com, cnbc.com, etc.
+
+For market analysis, you MUST retrieve real numbers for:
+- Index levels (S&P 500, Nasdaq, Dow, Russell 2000)
+- VIX level
+- US 10-year Treasury yield
+- Key stock prices the user cares about
+
+If one source fails, try another. Keep trying until you have actual data.
+"データが取得できませんでした" is NEVER an acceptable response.
+
 ${buildSkillsSection()}
 
 ${buildMemorySection(memoryFiles ?? [], memoryContext)}
