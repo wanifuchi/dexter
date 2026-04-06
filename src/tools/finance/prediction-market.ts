@@ -17,17 +17,26 @@ const GAMMA_API = 'https://gamma-api.polymarket.com';
 // 検索キーワードの同義語マッピング（日本語→英語対応）
 const KEYWORD_ALIASES: Record<string, string[]> = {
   'fed': ['fed', 'federal reserve', 'fomc', 'interest rate', 'rate cut', 'rate hike', 'funds rate'],
-  '利下げ': ['fed', 'rate cut', 'interest rate', 'fomc', 'funds rate'],
-  '利上げ': ['fed', 'rate hike', 'interest rate', 'fomc', 'funds rate'],
+  'frb': ['fed', 'federal reserve', 'fomc', 'interest rate', 'rate cut', 'rate hike', 'funds rate'],
+  '利下げ': ['fed', 'rate cut', 'interest rate', 'fomc', 'funds rate', 'decrease'],
+  '利上げ': ['fed', 'rate hike', 'interest rate', 'fomc', 'funds rate', 'increase'],
+  '金利': ['fed', 'interest rate', 'fomc', 'funds rate', 'rate cut', 'rate hike'],
   'fomc': ['fed', 'fomc', 'interest rate', 'rate cut', 'funds rate'],
+  'rate': ['fed', 'interest rate', 'rate cut', 'rate hike', 'funds rate'],
   'recession': ['recession', 'gdp', 'economic'],
   '景気後退': ['recession', 'gdp', 'economic'],
+  '不況': ['recession', 'gdp', 'economic'],
   'inflation': ['inflation', 'cpi', 'pce'],
   'インフレ': ['inflation', 'cpi', 'pce'],
-  'tariff': ['tariff', 'trade war', 'china'],
-  '関税': ['tariff', 'trade war', 'china'],
+  'cpi': ['inflation', 'cpi', 'pce'],
+  'tariff': ['tariff', 'trade war', 'china', 'trade'],
+  '関税': ['tariff', 'trade war', 'china', 'trade'],
   'election': ['election', 'president', 'vote', 'congress'],
   '選挙': ['election', 'president', 'vote'],
+  '大統領': ['president', 'election', 'trump', 'biden'],
+  'gdp': ['gdp', 'economic', 'recession', 'growth'],
+  'war': ['war', 'military', 'conflict', 'invasion'],
+  '戦争': ['war', 'military', 'conflict', 'invasion'],
 };
 
 interface MarketResult {
@@ -41,21 +50,26 @@ interface MarketResult {
 
 /**
  * クエリからフィルタ用キーワードリストを生成
+ * Polymarketは英語なので、日本語トークンは同義語展開のみに使い、
+ * 最終的なキーワードリストには英語のみを含める
  */
 function expandKeywords(query: string): string[] {
   const q = query.toLowerCase();
   const keywords = new Set<string>();
 
-  // 同義語展開
+  // 同義語展開（日本語→英語変換の要）
   for (const [trigger, aliases] of Object.entries(KEYWORD_ALIASES)) {
     if (q.includes(trigger)) {
       for (const a of aliases) keywords.add(a);
     }
   }
 
-  // クエリのトークンも追加（2文字以上）
+  // 英語トークンのみ追加（日本語・記号は除外）
+  // Polymarketのデータは全て英語なので、ASCII文字のみ有効
   for (const token of q.split(/\s+/)) {
-    if (token.length >= 2) keywords.add(token);
+    if (token.length >= 2 && /^[a-z0-9]+$/i.test(token)) {
+      keywords.add(token);
+    }
   }
 
   return [...keywords];
@@ -75,6 +89,10 @@ async function searchPolymarket(query: string, limit: number): Promise<MarketRes
     const events = await res.json() as any[];
 
     const keywords = expandKeywords(query);
+
+    // キーワードが空なら検索不可（日本語のみのクエリで同義語にもヒットしない場合）
+    if (keywords.length === 0) return [];
+
     const results: MarketResult[] = [];
 
     for (const event of events) {
