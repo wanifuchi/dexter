@@ -1,11 +1,14 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Agent } from '../agent/agent.js';
 import { InMemoryChatHistory } from '../utils/in-memory-chat-history.js';
-import { dexterPath } from '../utils/paths.js';
 import { HEARTBEAT_OK_TOKEN } from './heartbeat/suppression.js';
 import type { AgentEvent } from '../agent/types.js';
 import type { GroupContext } from '../agent/prompts.js';
-import { saveTurn, extractOfferedNextActions, getRecentTurns as getThreadRecentTurns } from '../conversation/index.js';
+import {
+  saveTurn,
+  extractOfferedNextActions,
+  getRecentTurns as getThreadRecentTurns,
+  restoreSessionFromThreads,
+} from '../conversation/index.js';
 import type { ConversationTurn } from '../conversation/types.js';
 
 type SessionState = {
@@ -15,70 +18,25 @@ type SessionState = {
 
 const sessions = new Map<string, SessionState>();
 
-// セッション永続化用ディレクトリ（ファイルフォールバック）
-const SESSIONS_DIR = dexterPath('sessions');
-
-// Redis（セッション永続化の主ストア）
-let redisClient: any = null;
-let redisInitialized = false;
-async function getRedis() {
-  if (redisInitialized) return redisClient;
-  redisInitialized = true;
-  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
-  if (!url || !token) return null;
-  try {
-    const { Redis } = await import('@upstash/redis');
-    redisClient = new Redis({ url, token });
-    return redisClient;
-  } catch { return null; }
-}
-
 /**
- * セッション履歴をRedis + ファイルに保存
+ * セッション復元 — ThreadStore (Redis正) から InMemoryChatHistory を構築
+ *
+ * ThreadStoreが唯一のsource of truthなので、
+ * cold start後もここから完全な会話履歴を復元できる。
  */
-async function persistSession(sessionKey: string, history: InMemoryChatHistory): Promise<void> {
-  const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const data = history.toJSON();
-  const json = JSON.stringify(data);
-
-  // Redis優先
-  const redis = await getRedis();
-  if (redis) {
-    try { await redis.set(`finx:session:${safeName}`, json); } catch {}
-  }
-
-  // ファイルフォールバック
+async function restoreFromThreadStore(sessionKey: string, history: InMemoryChatHistory): Promise<void> {
   try {
-    mkdirSync(SESSIONS_DIR, { recursive: true });
-    writeFileSync(`${SESSIONS_DIR}/${safeName}.json`, json, 'utf-8');
-  } catch {}
-}
+    const turns = await restoreSessionFromThreads(sessionKey);
+    if (turns.length === 0) return;
 
-/**
- * Redisまたはファイルからセッション履歴を復元
- */
-async function restoreSession(sessionKey: string, history: InMemoryChatHistory): Promise<void> {
-  const safeName = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-  // Redis優先
-  const redis = await getRedis();
-  if (redis) {
-    try {
-      let data = await redis.get(`finx:session:${safeName}`);
-      while (typeof data === 'string') { try { data = JSON.parse(data); } catch { break; } }
-      if (Array.isArray(data) && data.length > 0) {
-        history.loadFromJSON(data);
-        return;
-      }
-    } catch {}
-  }
-
-  // ファイルフォールバック
-  try {
-    const raw = readFileSync(`${SESSIONS_DIR}/${safeName}.json`, 'utf-8');
-    const data = JSON.parse(raw);
-    history.loadFromJSON(data);
+    // InMemoryChatHistory.loadFromJSON互換の形式に変換
+    const messages = turns.map((t, i) => ({
+      id: i,
+      query: t.query,
+      answer: t.answer,
+      summary: t.summary,
+    }));
+    history.loadFromJSON(messages);
   } catch {}
 }
 
@@ -91,8 +49,8 @@ async function getSession(sessionKey: string, model: string): Promise<SessionSta
     history: new InMemoryChatHistory(model),
     tail: Promise.resolve(),
   };
-  // コールドスタート後はRedis/ファイルから復元を試みる
-  await restoreSession(sessionKey, created.history);
+  // ThreadStore (Redis正) から会話履歴を復元
+  await restoreFromThreadStore(sessionKey, created.history);
   sessions.set(sessionKey, created);
   return created;
 }
@@ -131,7 +89,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
   const run = async () => {
     if (session) session.history.saveUserQuery(req.query);
 
-    // ThreadStoreからrecentTurnsを取得（InMemoryChatHistoryが空の場合のフォールバック用）
+    // ThreadStoreからrecentTurnsを取得（agent prompt context用）
     const threadTurns = await getThreadRecentTurns(req.sessionKey, 6);
 
     const agent = await Agent.create({
@@ -151,10 +109,8 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
     }
     if (finalAnswer && session) {
       await session.history.saveAnswer(finalAnswer);
-      // ターン完了時にファイルへ永続化
-      await persistSession(req.sessionKey, session.history);
 
-      // ConversationThreadStoreにターンを保存（会話継続性）
+      // ThreadStore (source of truth) にターンを保存
       try {
         const turn: ConversationTurn = {
           turnId: `${req.sessionKey}-${Date.now()}`,
@@ -172,12 +128,10 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
     // Prune HEARTBEAT_OK turns to avoid context pollution
     if (session && req.isHeartbeat && finalAnswer.trim().toUpperCase().includes(HEARTBEAT_OK_TOKEN)) {
       session.history.pruneLastTurn();
-      await persistSession(req.sessionKey, session.history);
     }
   };
 
   if (session) {
-    // Serialize per-session turns while allowing cross-session concurrency.
     session.tail = session.tail.then(run, run);
     await session.tail;
   } else {
