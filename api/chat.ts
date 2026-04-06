@@ -9,6 +9,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { runAgentForMessage } from '../src/gateway/agent-runner.js';
 import { resolveProvider } from '../src/providers.js';
 import type { AgentEvent } from '../src/agent/types.js';
+import { resolveFollowUp, getRecentTurns } from '../src/conversation/index.js';
 
 // Allow up to 5 minutes for complex analyses
 export const maxDuration = 300;
@@ -49,14 +50,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const sessionKey = body?.sessionId ?? 'web-default';
 
   try {
+    // FollowUpResolver: 短い追撃メッセージを解決
+    const recentTurns = await getRecentTurns(sessionKey, 6);
+    const resolution = resolveFollowUp(query, recentTurns);
+
+    let effectiveQuery = query;
+    if (resolution.wasResolved) {
+      effectiveQuery = resolution.resolvedQuery;
+      // クライアントに解決結果を通知（UI表示用、未対応クライアントは無視可能）
+      send('resolved_query', {
+        originalQuery: resolution.originalQuery,
+        resolvedQuery: resolution.resolvedQuery,
+        reason: resolution.reason,
+      });
+    }
+
     // 画像が添付されている場合、Visionプロンプトとしてクエリに統合
-    const effectiveQuery = image
-      ? `[画像が添付されています。以下の質問に画像の内容を踏まえて回答してください]\n\n${query}`
-      : query;
+    if (image) {
+      effectiveQuery = `[画像が添付されています。以下の質問に画像の内容を踏まえて回答してください]\n\n${effectiveQuery}`;
+    }
 
     const answer = await runAgentForMessage({
       sessionKey,
       query: effectiveQuery,
+      resolvedQuery: resolution.wasResolved ? resolution.resolvedQuery : undefined,
       image,
       model: DEFAULT_MODEL,
       modelProvider: resolveProvider(DEFAULT_MODEL).id,

@@ -5,6 +5,8 @@ import { dexterPath } from '../utils/paths.js';
 import { HEARTBEAT_OK_TOKEN } from './heartbeat/suppression.js';
 import type { AgentEvent } from '../agent/types.js';
 import type { GroupContext } from '../agent/prompts.js';
+import { saveTurn, extractOfferedNextActions } from '../conversation/index.js';
+import type { ConversationTurn } from '../conversation/types.js';
 
 type SessionState = {
   history: InMemoryChatHistory;
@@ -115,6 +117,8 @@ export type AgentRunRequest = {
   groupContext?: GroupContext;
   /** Vision: attached image to include in the prompt */
   image?: ImageAttachment;
+  /** FollowUpResolverで解決済みのクエリ（元のqueryと異なる場合にセット） */
+  resolvedQuery?: string;
 };
 
 export async function runAgentForMessage(req: AgentRunRequest): Promise<string> {
@@ -143,6 +147,20 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       await session.history.saveAnswer(finalAnswer);
       // ターン完了時にファイルへ永続化
       await persistSession(req.sessionKey, session.history);
+
+      // ConversationThreadStoreにターンを保存（会話継続性）
+      try {
+        const turn: ConversationTurn = {
+          turnId: `${req.sessionKey}-${Date.now()}`,
+          threadId: req.sessionKey,
+          timestamp: new Date().toISOString(),
+          userMessage: req.query,
+          resolvedUserMessage: req.resolvedQuery,
+          assistantMessage: finalAnswer,
+          offeredNextActions: extractOfferedNextActions(finalAnswer),
+        };
+        await saveTurn(turn);
+      } catch {}
     }
 
     // Prune HEARTBEAT_OK turns to avoid context pollution
