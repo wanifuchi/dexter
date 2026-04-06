@@ -1,165 +1,177 @@
 /**
- * 予測市場ツール — Polymarket/Kalshi のパブリックAPIから
+ * 予測市場ツール — Polymarket のパブリックAPIから
  * 経済・政治イベントのオッズ（確率）を取得
  *
  * 金利決定、選挙、地政学イベント等の市場予測をFinxの分析に活用
  * APIキー不要（パブリックエンドポイント）
+ *
+ * 注意: Polymarket gamma APIのtitle検索パラメータは機能しないため、
+ * volume順で大量取得→ローカルでキーワードフィルタする方式を採用
  */
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { formatToolResult } from '../types.js';
 
-// Polymarket CLOB API (パブリック)
-const POLYMARKET_API = 'https://clob.polymarket.com';
-// Kalshi パブリックAPI
-const KALSHI_API = 'https://api.elections.kalshi.com/trade-api/v2';
+const GAMMA_API = 'https://gamma-api.polymarket.com';
 
-interface PolymarketEvent {
-  title: string;
-  slug: string;
+// 検索キーワードの同義語マッピング（日本語→英語対応）
+const KEYWORD_ALIASES: Record<string, string[]> = {
+  'fed': ['fed', 'federal reserve', 'fomc', 'interest rate', 'rate cut', 'rate hike', 'funds rate'],
+  '利下げ': ['fed', 'rate cut', 'interest rate', 'fomc', 'funds rate'],
+  '利上げ': ['fed', 'rate hike', 'interest rate', 'fomc', 'funds rate'],
+  'fomc': ['fed', 'fomc', 'interest rate', 'rate cut', 'funds rate'],
+  'recession': ['recession', 'gdp', 'economic'],
+  '景気後退': ['recession', 'gdp', 'economic'],
+  'inflation': ['inflation', 'cpi', 'pce'],
+  'インフレ': ['inflation', 'cpi', 'pce'],
+  'tariff': ['tariff', 'trade war', 'china'],
+  '関税': ['tariff', 'trade war', 'china'],
+  'election': ['election', 'president', 'vote', 'congress'],
+  '選挙': ['election', 'president', 'vote'],
+};
+
+interface MarketResult {
+  question: string;
   outcomes: string[];
-  outcomePrices: string[];
-  volume: string;
-  endDate: string;
-  active: boolean;
-}
-
-interface KalshiMarket {
-  title: string;
-  ticker: string;
-  yes_bid: number;
-  yes_ask: number;
-  no_bid: number;
-  no_ask: number;
+  prices: string[];
   volume: number;
-  close_time: string;
-  status: string;
-  category: string;
+  endDate: string;
+  slug: string;
 }
 
 /**
- * Polymarketからイベント検索
+ * クエリからフィルタ用キーワードリストを生成
  */
-async function searchPolymarket(query: string, limit: number = 10): Promise<PolymarketEvent[]> {
+function expandKeywords(query: string): string[] {
+  const q = query.toLowerCase();
+  const keywords = new Set<string>();
+
+  // 同義語展開
+  for (const [trigger, aliases] of Object.entries(KEYWORD_ALIASES)) {
+    if (q.includes(trigger)) {
+      for (const a of aliases) keywords.add(a);
+    }
+  }
+
+  // クエリのトークンも追加（2文字以上）
+  for (const token of q.split(/\s+/)) {
+    if (token.length >= 2) keywords.add(token);
+  }
+
+  return [...keywords];
+}
+
+/**
+ * Polymarketからvolume順で大量取得し、キーワードでフィルタ
+ */
+async function searchPolymarket(query: string, limit: number): Promise<MarketResult[]> {
   try {
-    const url = `https://gamma-api.polymarket.com/events?closed=false&limit=${limit}&title=${encodeURIComponent(query)}`;
+    // volume順で上位200イベントを取得（APIの検索パラメータは機能しないため）
+    const url = `${GAMMA_API}/events?closed=false&order=volume&ascending=false&limit=200`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
     });
     if (!res.ok) return [];
-    const data = await res.json() as any[];
+    const events = await res.json() as any[];
 
-    return data.map((e: any) => ({
-      title: e.title ?? '',
-      slug: e.slug ?? '',
-      outcomes: (e.markets ?? []).flatMap((m: any) => m.outcomes ? JSON.parse(m.outcomes) : []),
-      outcomePrices: (e.markets ?? []).flatMap((m: any) => m.outcomePrices ? JSON.parse(m.outcomePrices) : []),
-      volume: e.volume ?? '0',
-      endDate: e.endDate ?? '',
-      active: e.active ?? false,
-    }));
+    const keywords = expandKeywords(query);
+    const results: MarketResult[] = [];
+
+    for (const event of events) {
+      const markets = event.markets ?? [];
+      const eventTitle = (event.title ?? '').toLowerCase();
+      const eventSlug = event.slug ?? '';
+
+      // イベントレベルでキーワードマッチ
+      const eventMatches = keywords.some(k => eventTitle.includes(k));
+
+      for (const market of markets) {
+        const question = (market.question ?? '').toLowerCase();
+        const matches = eventMatches || keywords.some(k => question.includes(k));
+
+        if (!matches) continue;
+
+        let outcomes: string[] = [];
+        let prices: string[] = [];
+        try {
+          outcomes = typeof market.outcomes === 'string' ? JSON.parse(market.outcomes) : (market.outcomes ?? []);
+          prices = typeof market.outcomePrices === 'string' ? JSON.parse(market.outcomePrices) : (market.outcomePrices ?? []);
+        } catch { continue; }
+
+        // 価格データがないものはスキップ
+        if (prices.length === 0 || prices.every((p: string) => !p)) continue;
+
+        results.push({
+          question: market.question ?? event.title ?? '',
+          outcomes,
+          prices,
+          volume: parseFloat(event.volume ?? '0'),
+          endDate: market.endDate ?? event.endDate ?? '',
+          slug: eventSlug,
+        });
+      }
+    }
+
+    // volume順で上位を返す
+    return results
+      .sort((a, b) => b.volume - a.volume)
+      .slice(0, limit);
   } catch {
     return [];
   }
 }
 
 /**
- * Kalshiからマーケット検索
+ * 結果をフォーマット
  */
-async function searchKalshi(query: string, limit: number = 10): Promise<KalshiMarket[]> {
-  try {
-    const url = `${KALSHI_API}/markets?limit=${limit}&status=open`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as any;
-    const markets = data.markets ?? [];
-
-    const q = query.toLowerCase();
-    return markets
-      .filter((m: any) => (m.title ?? '').toLowerCase().includes(q) || (m.category ?? '').toLowerCase().includes(q))
-      .slice(0, limit)
-      .map((m: any) => ({
-        title: m.title ?? '',
-        ticker: m.ticker ?? '',
-        yes_bid: m.yes_bid ?? 0,
-        yes_ask: m.yes_ask ?? 0,
-        no_bid: m.no_bid ?? 0,
-        no_ask: m.no_ask ?? 0,
-        volume: m.volume ?? 0,
-        close_time: m.close_time ?? '',
-        status: m.status ?? '',
-        category: m.category ?? '',
-      }));
-  } catch {
-    return [];
+function formatResults(markets: MarketResult[]): Record<string, unknown> {
+  if (markets.length === 0) {
+    return {
+      message: '該当する予測市場が見つかりませんでした。別のキーワードを試してください。',
+      suggestions: ['Fed rate', 'recession', 'tariff', 'election', 'inflation CPI'],
+    };
   }
-}
 
-/**
- * 結果を読みやすくフォーマット
- */
-function formatResults(polyResults: PolymarketEvent[], kalshiResults: KalshiMarket[]): Record<string, unknown> {
-  const formatted: Record<string, unknown> = {};
-
-  if (polyResults.length > 0) {
-    formatted.polymarket = polyResults.map(e => {
+  return {
+    markets: markets.map(m => {
       const odds: Record<string, string> = {};
-      for (let i = 0; i < e.outcomes.length; i++) {
-        const price = parseFloat(e.outcomePrices[i] ?? '0');
-        odds[e.outcomes[i]] = `${(price * 100).toFixed(1)}%`;
+      for (let i = 0; i < m.outcomes.length; i++) {
+        const price = parseFloat(m.prices[i] ?? '0');
+        if (price > 0) {
+          odds[m.outcomes[i]] = `${(price * 100).toFixed(1)}%`;
+        }
       }
       return {
-        title: e.title,
+        question: m.question,
         odds,
-        volume: `$${parseFloat(e.volume).toLocaleString()}`,
-        endDate: e.endDate ? new Date(e.endDate).toLocaleDateString() : 'N/A',
-        url: `https://polymarket.com/event/${e.slug}`,
+        volume: `$${m.volume.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+        endDate: m.endDate ? new Date(m.endDate).toLocaleDateString('ja-JP') : 'N/A',
+        url: `https://polymarket.com/event/${m.slug}`,
       };
-    });
-  }
-
-  if (kalshiResults.length > 0) {
-    formatted.kalshi = kalshiResults.map(m => ({
-      title: m.title,
-      ticker: m.ticker,
-      yesProbability: `${(m.yes_bid * 100).toFixed(0)}-${(m.yes_ask * 100).toFixed(0)}%`,
-      noProbability: `${(m.no_bid * 100).toFixed(0)}-${(m.no_ask * 100).toFixed(0)}%`,
-      volume: m.volume,
-      closeTime: m.close_time ? new Date(m.close_time).toLocaleDateString() : 'N/A',
-      category: m.category,
-    }));
-  }
-
-  if (polyResults.length === 0 && kalshiResults.length === 0) {
-    formatted.message = '該当する予測市場が見つかりませんでした。キーワードを変えて試してください（例: "Fed", "rate", "election", "GDP"）';
-  }
-
-  return formatted;
+    }),
+    source: 'Polymarket（予測市場 — 群衆の予測確率）',
+    note: '予測市場の確率は賭けに基づく市場参加者のコンセンサスであり、確定予測ではありません。CME FedWatch等の先物市場の織り込みと併せて参考にしてください。',
+  };
 }
 
 export const predictionMarketTool = new DynamicStructuredTool({
   name: 'prediction_market',
-  description: 'Search prediction markets (Polymarket, Kalshi) for event odds/probabilities. Useful for Fed rate decisions, elections, geopolitical events, economic indicators. Returns market-implied probabilities.',
+  description: 'Search Polymarket prediction markets for event odds/probabilities. Useful for Fed rate decisions, elections, geopolitical events, economic indicators. Returns market-implied probabilities.',
   schema: z.object({
-    query: z.string().describe("Search query. Examples: 'Fed rate cut', 'US election', 'recession 2026', 'CPI', 'tariff'"),
-    limit: z.number().optional().default(5).describe('Max results per platform (default: 5)'),
+    query: z.string().describe("Search query. Examples: 'Fed rate cut', 'election', 'recession', 'CPI inflation', 'tariff'. Japanese queries also supported: '利下げ', '景気後退', '関税'"),
+    limit: z.number().optional().default(10).describe('Max results to return (default: 10)'),
   }),
   func: async (input) => {
-    const [polyResults, kalshiResults] = await Promise.all([
-      searchPolymarket(input.query, input.limit),
-      searchKalshi(input.query, input.limit),
-    ]);
-
-    const formatted = formatResults(polyResults, kalshiResults);
+    const markets = await searchPolymarket(input.query, input.limit ?? 10);
+    const formatted = formatResults(markets);
     return formatToolResult(formatted);
   },
 });
 
-export const PREDICTION_MARKET_DESCRIPTION = `Searches Polymarket and Kalshi prediction markets for event probabilities.
+export const PREDICTION_MARKET_DESCRIPTION = `Searches Polymarket prediction markets for event probabilities.
 Use for: Fed rate decisions, elections, GDP forecasts, geopolitical events, tariff odds, recession probability.
 Returns market-implied probabilities (crowd-sourced forecasts).
 No API key required — uses public endpoints.
-Examples: "Fed rate cut June", "US recession 2026", "CPI above 3%", "tariff China"
+Supports Japanese keywords: '利下げ', '利上げ', '景気後退', 'インフレ', '関税', '選挙'
+Examples: "Fed rate cut", "recession 2026", "tariff China", "利下げ"
 Combine with macro analysis for more informed investment decisions.`;
