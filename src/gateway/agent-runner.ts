@@ -95,6 +95,11 @@ async function getSession(sessionKey: string, model: string): Promise<SessionSta
   return created;
 }
 
+export type ImageAttachment = {
+  base64: string;
+  mimeType: string;
+};
+
 export type AgentRunRequest = {
   sessionKey: string;
   query: string;
@@ -108,6 +113,8 @@ export type AgentRunRequest = {
   isolatedSession?: boolean;
   channel?: string;
   groupContext?: GroupContext;
+  /** Vision: attached image to include in the prompt */
+  image?: ImageAttachment;
 };
 
 export async function runAgentForMessage(req: AgentRunRequest): Promise<string> {
@@ -126,7 +133,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       groupContext: req.groupContext,
       memoryEnabled: !isolated,
     });
-    for await (const event of agent.run(req.query, session?.history)) {
+    for await (const event of agent.run(req.query, session?.history, req.image)) {
       await req.onEvent?.(event);
       if (event.type === 'done') {
         finalAnswer = event.answer;

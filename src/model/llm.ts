@@ -139,12 +139,19 @@ export function getChatModel(
   return factory(modelName, opts);
 }
 
+export interface ImageContent {
+  base64: string;
+  mimeType: string;
+}
+
 interface CallLlmOptions {
   model?: string;
   systemPrompt?: string;
   outputSchema?: z.ZodType<unknown>;
   tools?: StructuredToolInterface[];
   signal?: AbortSignal;
+  /** Vision: attach an image to the user message */
+  image?: ImageContent;
 }
 
 export interface LlmResult {
@@ -201,7 +208,7 @@ function buildAnthropicMessages(systemPrompt: string, userPrompt: string) {
 }
 
 export async function callLlm(prompt: string, options: CallLlmOptions = {}): Promise<LlmResult> {
-  const { model = DEFAULT_MODEL, systemPrompt, outputSchema, tools, signal } = options;
+  const { model = DEFAULT_MODEL, systemPrompt, outputSchema, tools, signal, image } = options;
   const finalSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   const llm = getChatModel(model, false);
@@ -219,7 +226,18 @@ export async function callLlm(prompt: string, options: CallLlmOptions = {}): Pro
   const provider = resolveProvider(model);
   let result;
 
-  if (provider.id === 'anthropic') {
+  // 画像付きの場合は明示的にmessagesを組み立てる（Vision対応）
+  if (image) {
+    const userContent: any[] = [
+      { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
+      { type: 'text', text: prompt },
+    ];
+    const messages = [
+      new SystemMessage(finalSystemPrompt),
+      new HumanMessage({ content: userContent }),
+    ];
+    result = await withRetry(() => runnable.invoke(messages, invokeOpts), provider.displayName);
+  } else if (provider.id === 'anthropic') {
     // Anthropic: use explicit messages with cache_control for prompt caching (~90% savings)
     const messages = buildAnthropicMessages(finalSystemPrompt, prompt);
     result = await withRetry(() => runnable.invoke(messages, invokeOpts), provider.displayName);

@@ -14,6 +14,7 @@ import { AgentToolExecutor } from './tool-executor.js';
 import { MemoryManager } from '../memory/index.js';
 import { runMemoryFlush, shouldRunMemoryFlush } from '../memory/flush.js';
 import { resolveProvider } from '../providers.js';
+import type { ImageContent } from '../model/llm.js';
 
 
 const DEFAULT_MODEL = 'gpt-5.4';
@@ -92,7 +93,7 @@ export class Agent {
    * Anthropic-style context management: full tool results during iteration,
    * with threshold-based clearing of oldest results when context exceeds limit.
    */
-  async *run(query: string, inMemoryHistory?: InMemoryChatHistory): AsyncGenerator<AgentEvent> {
+  async *run(query: string, inMemoryHistory?: InMemoryChatHistory, image?: ImageContent): AsyncGenerator<AgentEvent> {
     const startTime = Date.now();
 
     if (this.tools.length === 0) {
@@ -116,7 +117,9 @@ export class Agent {
 
       while (true) {
         try {
-          const result = await this.callModel(currentPrompt);
+          // 画像は最初のイテレーションでのみ送信（以降はテキストのみ）
+          const imageForThisCall = ctx.iteration === 1 ? image : undefined;
+          const result = await this.callModel(currentPrompt, true, imageForThisCall);
           response = result.response;
           usage = result.usage;
           overflowRetries = 0;
@@ -215,12 +218,13 @@ export class Agent {
    * @param prompt - The prompt to send to the LLM
    * @param useTools - Whether to bind tools (default: true). When false, returns string directly.
    */
-  private async callModel(prompt: string, useTools: boolean = true): Promise<{ response: AIMessage | string; usage?: TokenUsage }> {
+  private async callModel(prompt: string, useTools: boolean = true, image?: ImageContent): Promise<{ response: AIMessage | string; usage?: TokenUsage }> {
     const result = await callLlm(prompt, {
       model: this.model,
       systemPrompt: this.systemPrompt,
       tools: useTools ? this.tools : undefined,
       signal: this.signal,
+      image,
     });
     return { response: result.response, usage: result.usage };
   }

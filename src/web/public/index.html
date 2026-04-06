@@ -631,8 +631,17 @@
     </div>
   </div>
 
+  <div id="image-preview" style="display:none;padding:8px 16px">
+    <div style="display:inline-flex;align-items:center;gap:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:4px 8px">
+      <img id="image-preview-img" style="max-height:60px;border-radius:4px">
+      <span id="image-preview-name" style="font-size:12px;color:var(--text-muted)"></span>
+      <button type="button" onclick="clearImageAttachment()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px" title="削除">&times;</button>
+    </div>
+  </div>
   <div class="input-area">
     <div class="input-wrapper">
+      <input type="file" id="image-input" accept="image/*" style="display:none" onchange="handleImageSelect(event)">
+      <button type="button" title="画像を添付" onclick="document.getElementById('image-input').click()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 8px;cursor:pointer;color:var(--text-muted);font-size:14px;flex-shrink:0">+</button>
       <textarea id="input" rows="1" placeholder="質問を入力 (Shift+Enterで送信)" autofocus></textarea>
       <button type="button" id="send-btn" title="送信" onclick="sendMessage()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -975,6 +984,30 @@
   const modelNameEl = document.getElementById('model-name');
 
   let isProcessing = false;
+  let pendingImage = null; // { base64: string, mimeType: string, name: string }
+
+  function handleImageSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('画像ファイルのみ対応しています'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('10MB以下の画像を選択してください'); return; }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      pendingImage = { base64, mimeType: file.type, name: file.name };
+      document.getElementById('image-preview').style.display = 'block';
+      document.getElementById('image-preview-img').src = reader.result;
+      document.getElementById('image-preview-name').textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  }
+
+  function clearImageAttachment() {
+    pendingImage = null;
+    document.getElementById('image-preview').style.display = 'none';
+  }
   // セッションIDをlocalStorageに永続化（ページリロードでも会話が続く）
   let sessionId = localStorage.getItem('finx_session_id');
   if (!sessionId) {
@@ -1144,8 +1177,15 @@
 
     const userMsg = document.createElement('div');
     userMsg.className = 'msg msg-user';
-    userMsg.innerHTML = `<div class="bubble">${escapeHtml(query)}</div>`;
+    const bubbleContent = pendingImage
+      ? `<img src="data:${pendingImage.mimeType};base64,${pendingImage.base64}" style="max-width:200px;max-height:150px;border-radius:6px;display:block;margin-bottom:6px">${escapeHtml(query)}`
+      : escapeHtml(query);
+    userMsg.innerHTML = `<div class="bubble">${bubbleContent}</div>`;
     messagesEl.appendChild(userMsg);
+
+    // 送信用に画像を保持してからクリア
+    const imageToSend = pendingImage;
+    clearImageAttachment();
 
     inputEl.value = '';
     inputEl.style.height = 'auto';
@@ -1178,7 +1218,7 @@
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, sessionId }),
+        body: JSON.stringify({ query, sessionId, ...(imageToSend && { image: { base64: imageToSend.base64, mimeType: imageToSend.mimeType } }) }),
       });
 
       const reader = response.body.getReader();

@@ -29,8 +29,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const body = req.body as { query?: string; sessionId?: string } | undefined;
+  const body = req.body as { query?: string; sessionId?: string; image?: { base64: string; mimeType: string } } | undefined;
   const query = body?.query?.trim();
+  const image = body?.image;
 
   if (!query) {
     return res.status(400).json({ error: 'query is required' });
@@ -48,9 +49,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const sessionKey = body?.sessionId ?? 'web-default';
 
   try {
+    // 画像が添付されている場合、Visionプロンプトとしてクエリに統合
+    const effectiveQuery = image
+      ? `[画像が添付されています。以下の質問に画像の内容を踏まえて回答してください]\n\n${query}`
+      : query;
+
     const answer = await runAgentForMessage({
       sessionKey,
-      query,
+      query: effectiveQuery,
+      image,
       model: DEFAULT_MODEL,
       modelProvider: resolveProvider(DEFAULT_MODEL).id,
       maxIterations: 15,
