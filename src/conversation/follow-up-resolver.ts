@@ -97,6 +97,42 @@ function resolveNumberedActions(
 }
 
 /**
+ * ユーザーの入力がofferedNextActionsの文言を列挙しているか判定
+ * 「1. xxx 2. xxx 3. xxx たのむ」のような長文継続要求を拾う
+ */
+function matchesOfferedActions(query: string, actions: OfferedNextAction[]): OfferedNextAction[] | null {
+  if (actions.length === 0) return null;
+
+  // 番号付きリストパターン: "1. xxx 2. xxx 3. xxx"
+  const numberedPattern = /(\d+)[.)\s]+/g;
+  const numbers: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = numberedPattern.exec(query)) !== null) {
+    numbers.push(match[1]);
+  }
+
+  // offeredActionsのキーと照合
+  if (numbers.length >= 2) {
+    const matched = numbers
+      .map(n => actions.find(a => a.key === n))
+      .filter((a): a is OfferedNextAction => a != null);
+    if (matched.length >= 2 && matched.length >= actions.length * 0.5) {
+      return matched;
+    }
+  }
+
+  // ラベル文言の部分一致: offeredActionsのlabelがクエリに含まれているか
+  const labelMatches = actions.filter(a =>
+    query.includes(a.label) || query.includes(a.instruction)
+  );
+  if (labelMatches.length >= 2 && labelMatches.length >= actions.length * 0.5) {
+    return labelMatches;
+  }
+
+  return null;
+}
+
+/**
  * 直近ターンからfollow-upを解決
  */
 export function resolveFollowUp(
@@ -112,14 +148,31 @@ export function resolveFollowUp(
     confidence: 1.0,
   };
 
+  const lastTurn = recentTurns.length > 0 ? recentTurns[recentTurns.length - 1] : null;
+  const actions = lastTurn?.offeredNextActions ?? [];
+
+  // 長文でもofferedNextActionsの文言を列挙している場合は継続要求として解決
+  if (lastTurn && actions.length > 0) {
+    const matched = matchesOfferedActions(trimmed, actions);
+    if (matched) {
+      const allDescriptions = matched.map((a, i) => `${i + 1}. ${a.instruction}`).join(' と ');
+      return {
+        wasResolved: true,
+        originalQuery: query,
+        resolvedQuery: `前の回答で提案した ${allDescriptions} を実行して`,
+        reason: 'all_actions',
+        confidence: 0.9,
+        matchedTurnId: lastTurn.turnId,
+        matchedActionKeys: matched.map(a => a.key),
+      };
+    }
+  }
+
   // 明示パターンに一致しなければ即direct
   if (!matchesFollowUpPattern(trimmed)) return directResult;
 
   // 履歴がなければ解決不可 → direct
-  const lastTurn = recentTurns.length > 0 ? recentTurns[recentTurns.length - 1] : null;
   if (!lastTurn) return directResult;
-
-  const actions = lastTurn.offeredNextActions ?? [];
 
   // 1. 数字参照の解決
   const numberRefs = parseNumberRefs(trimmed);

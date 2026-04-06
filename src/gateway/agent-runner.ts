@@ -5,7 +5,7 @@ import { dexterPath } from '../utils/paths.js';
 import { HEARTBEAT_OK_TOKEN } from './heartbeat/suppression.js';
 import type { AgentEvent } from '../agent/types.js';
 import type { GroupContext } from '../agent/prompts.js';
-import { saveTurn, extractOfferedNextActions } from '../conversation/index.js';
+import { saveTurn, extractOfferedNextActions, getRecentTurns as getThreadRecentTurns } from '../conversation/index.js';
 import type { ConversationTurn } from '../conversation/types.js';
 
 type SessionState = {
@@ -130,6 +130,10 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
 
   const run = async () => {
     if (session) session.history.saveUserQuery(req.query);
+
+    // ThreadStoreからrecentTurnsを取得（InMemoryChatHistoryが空の場合のフォールバック用）
+    const threadTurns = await getThreadRecentTurns(req.sessionKey, 6);
+
     const agent = await Agent.create({
       model: req.model,
       modelProvider: req.modelProvider,
@@ -139,7 +143,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       groupContext: req.groupContext,
       memoryEnabled: !isolated,
     });
-    for await (const event of agent.run(req.query, session?.history, req.image)) {
+    for await (const event of agent.run(req.query, session?.history, req.image, threadTurns)) {
       await req.onEvent?.(event);
       if (event.type === 'done') {
         finalAnswer = event.answer;

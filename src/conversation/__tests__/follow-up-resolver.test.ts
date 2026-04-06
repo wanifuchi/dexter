@@ -145,4 +145,45 @@ describe('FollowUpResolver', () => {
     expect(result.wasResolved).toBe(false);
     expect(result.reason).toBe('direct');
   });
+
+  // === 長文継続要求（offeredNextActionsの文言を列挙） ===
+
+  it('3項目をそのまま列挙した長文要求を継続として解決する', () => {
+    const turnsWith3Actions = [makeTurn({
+      offeredNextActions: [
+        { key: '1', label: '売却後の新ポートフォリオ比率', instruction: '売却後の新ポートフォリオ比率を出す' },
+        { key: '2', label: '特定/NISAどちらから先に売るべきか', instruction: '税金まで加味した特定/NISAどちらから先に売るべきかを出す' },
+        { key: '3', label: '指値一覧を注文メモ形式で出す', instruction: '指値一覧をそのまま注文メモ形式で出す' },
+      ],
+    })];
+
+    const longQuery = '1. この売買を反映した「売却後の新ポートフォリオ比率」 2. 税金まで加味した「特定/NISAどちらから先に売るべきか」 3. 指値一覧をそのまま注文メモ形式で出す たのむ';
+    const result = resolveFollowUp(longQuery, turnsWith3Actions);
+
+    expect(result.wasResolved).toBe(true);
+    expect(result.reason).toBe('all_actions');
+    expect(result.matchedActionKeys?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('offeredActionsのラベルを含む長文要求を継続として解決する', () => {
+    const turnsWith3Actions = [makeTurn({
+      offeredNextActions: [
+        { key: '1', label: '売却後の新ポートフォリオ比率', instruction: '売却後の新ポートフォリオ比率' },
+        { key: '2', label: '特定/NISAどちらから先に売るべきか', instruction: '特定/NISAどちらから先に売るべきか' },
+        { key: '3', label: '指値一覧を注文メモ形式で出す', instruction: '指値一覧を注文メモ形式で出す' },
+      ],
+    })];
+
+    const longQuery = '売却後の新ポートフォリオ比率と、特定/NISAどちらから先に売るべきかと、指値一覧を注文メモ形式で出す、全部やって';
+    const result = resolveFollowUp(longQuery, turnsWith3Actions);
+
+    expect(result.wasResolved).toBe(true);
+    expect(result.matchedActionKeys?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('長文だがofferedActionsと無関係な質問はdirect', () => {
+    const result = resolveFollowUp('来週のFOMCに向けてポートフォリオをどう調整すべきか詳しく教えて', recentTurns);
+    expect(result.wasResolved).toBe(false);
+    expect(result.reason).toBe('direct');
+  });
 });

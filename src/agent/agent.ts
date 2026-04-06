@@ -15,6 +15,7 @@ import { MemoryManager } from '../memory/index.js';
 import { runMemoryFlush, shouldRunMemoryFlush } from '../memory/flush.js';
 import { resolveProvider } from '../providers.js';
 import type { ImageContent } from '../model/llm.js';
+import type { ConversationTurn } from '../conversation/types.js';
 
 
 const DEFAULT_MODEL = 'gpt-5.4';
@@ -93,7 +94,7 @@ export class Agent {
    * Anthropic-style context management: full tool results during iteration,
    * with threshold-based clearing of oldest results when context exceeds limit.
    */
-  async *run(query: string, inMemoryHistory?: InMemoryChatHistory, image?: ImageContent): AsyncGenerator<AgentEvent> {
+  async *run(query: string, inMemoryHistory?: InMemoryChatHistory, image?: ImageContent, threadTurns?: ConversationTurn[]): AsyncGenerator<AgentEvent> {
     const startTime = Date.now();
 
     if (this.tools.length === 0) {
@@ -105,7 +106,7 @@ export class Agent {
     const memoryFlushState = { alreadyFlushed: false };
 
     // Build initial prompt with conversation history context
-    let currentPrompt = this.buildInitialPrompt(query, inMemoryHistory);
+    let currentPrompt = this.buildInitialPrompt(query, inMemoryHistory, threadTurns);
 
     // Main agent loop
     let overflowRetries = 0;
@@ -292,24 +293,58 @@ export class Agent {
   }
 
   /**
-   * Build initial prompt with conversation history context if available
+   * Build initial prompt with conversation history context.
+   * Uses InMemoryChatHistory if available, falls back to ThreadStore turns.
    */
   private buildInitialPrompt(
     query: string,
-    inMemoryChatHistory?: InMemoryChatHistory
+    inMemoryChatHistory?: InMemoryChatHistory,
+    threadTurns?: ConversationTurn[],
   ): string {
-    if (!inMemoryChatHistory?.hasMessages()) {
-      return query;
+    // 1. InMemoryChatHistoryがあればそれを使う（既存動作）
+    if (inMemoryChatHistory?.hasMessages()) {
+      const recentTurns = inMemoryChatHistory.getRecentTurns();
+      if (recentTurns.length > 0) {
+        // ThreadStoreのturnsも補完的に注入（InMemoryChatHistoryのsummaryが空の場合の保険）
+        const threadContext = this.buildThreadContext(threadTurns);
+        const historyContext = buildHistoryContext({
+          entries: recentTurns,
+          currentMessage: query,
+        });
+        if (threadContext) {
+          return `${threadContext}\n\n${historyContext}`;
+        }
+        return historyContext;
+      }
     }
 
-    const recentTurns = inMemoryChatHistory.getRecentTurns();
-    if (recentTurns.length === 0) {
-      return query;
+    // 2. InMemoryChatHistoryが空 → ThreadStoreからフォールバック
+    const threadContext = this.buildThreadContext(threadTurns);
+    if (threadContext) {
+      return buildHistoryContext({
+        entries: [],
+        currentMessage: query,
+      }).replace('[Current message - respond to this]', `${threadContext}\n\n[Current message - respond to this]`);
     }
 
-    return buildHistoryContext({
-      entries: recentTurns,
-      currentMessage: query,
+    return query;
+  }
+
+  /**
+   * ThreadStoreのturnsから会話コンテキストを構築
+   */
+  private buildThreadContext(threadTurns?: ConversationTurn[]): string | null {
+    if (!threadTurns || threadTurns.length === 0) return null;
+
+    // 直近6ターンのうち、最新3ターンはfull、残りはsummary
+    const lines = threadTurns.map((turn, i) => {
+      const isRecent = i >= threadTurns.length - 3;
+      const assistantText = isRecent
+        ? turn.assistantMessage
+        : (turn.assistantSummary ?? turn.assistantMessage.slice(0, 500));
+      return `User: ${turn.userMessage}\nAssistant: ${assistantText}`;
     });
+
+    return `[Thread history (from persistent store)]\n${lines.join('\n\n')}`;
   }
 }
