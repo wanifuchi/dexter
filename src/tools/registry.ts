@@ -29,6 +29,7 @@ import {
 } from './finance-jp/index.js';
 import { jpStockPrice, JP_STOCK_PRICE_DESCRIPTION, isJQuantsAvailable } from './finance-jp/index.js';
 import { createJpScreener, JP_SCREENER_DESCRIPTION } from './finance-jp/index.js';
+import { predictionMarketTool, PREDICTION_MARKET_DESCRIPTION } from './finance/prediction-market.js';
 
 import { exaSearch, perplexitySearch, tavilySearch, WEB_SEARCH_DESCRIPTION, xSearchTool, X_SEARCH_DESCRIPTION } from './search/index.js';
 import { skillTool, SKILL_TOOL_DESCRIPTION } from './skill.js';
@@ -271,6 +272,13 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       { name: 'jp_stock_price', tool: jpStockPrice, description: JP_STOCK_PRICE_DESCRIPTION },
     );
   }
+
+  // === 予測市場ツール（APIキー不要 — 常時有効） ===
+  tools.push({
+    name: 'prediction_market',
+    tool: predictionMarketTool,
+    description: PREDICTION_MARKET_DESCRIPTION,
+  });
 
   // === トレーディングツール（常時有効） ===
   tools.push(
