@@ -1072,83 +1072,89 @@
     }
   });
 
-  // --- 履歴管理 (スレッドベース localStorage) ---
-  function getThreads() {
-    try { return JSON.parse(localStorage.getItem('finx_threads') || '{}'); }
-    catch { return {}; }
-  }
-
+  // --- 履歴管理 (server truth + localStorageキャッシュ) ---
+  // localStorageは現在のスレッドの描画キャッシュ用のみ。正はサーバー側ThreadStore。
   function saveToHistory(query, answer, stats) {
-    const threads = getThreads();
-    if (!threads[sessionId]) {
-      threads[sessionId] = { id: sessionId, title: query.slice(0, 50), turns: [], createdAt: Date.now(), updatedAt: Date.now() };
-    }
-    threads[sessionId].turns.push({ query, answer, stats, date: new Date().toISOString() });
-    threads[sessionId].updatedAt = Date.now();
-    // スレッドあたり最大50ターン
-    if (threads[sessionId].turns.length > 50) threads[sessionId].turns = threads[sessionId].turns.slice(-50);
-    localStorage.setItem('finx_threads', JSON.stringify(threads));
+    // サーバー側ThreadStoreが正なのでローカルは軽量キャッシュのみ
+    try {
+      const cache = JSON.parse(localStorage.getItem('finx_thread_cache') || '{}');
+      if (!cache[sessionId]) cache[sessionId] = [];
+      cache[sessionId].push({ query, answer, date: new Date().toISOString() });
+      if (cache[sessionId].length > 50) cache[sessionId] = cache[sessionId].slice(-50);
+      localStorage.setItem('finx_thread_cache', JSON.stringify(cache));
+    } catch {}
   }
 
   function clearHistory() {
     if (confirm('履歴をすべて削除しますか？')) {
-      localStorage.removeItem('finx_threads');
+      localStorage.removeItem('finx_thread_cache');
       renderHistory();
     }
   }
 
-  function renderHistory() {
+  async function renderHistory() {
     const list = document.getElementById('history-list');
-    const threads = getThreads();
-    const sorted = Object.values(threads).sort((a, b) => b.updatedAt - a.updatedAt);
-    if (sorted.length === 0) {
-      list.innerHTML = '<div class="history-empty">履歴はまだありません</div>';
-      return;
+    list.innerHTML = '<div class="history-empty">読み込み中...</div>';
+
+    try {
+      const res = await fetch('/api/conversations');
+      const data = await res.json();
+      const threads = data.threads || [];
+
+      if (threads.length === 0) {
+        list.innerHTML = '<div class="history-empty">履歴はまだありません</div>';
+        return;
+      }
+
+      list.innerHTML = threads.map(thread => {
+        const date = new Date(thread.updatedAt);
+        const dateStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+        const preview = (thread.lastAssistantPreview || '').replace(/\*\*/g, '').replace(/[|#\-]/g, ' ').trim();
+        const isActive = thread.threadId === sessionId;
+        return `<div class="history-item${isActive ? ' active' : ''}" onclick="openThread('${thread.threadId}')">
+          <div class="h-query">${escapeHtml(thread.title)}${thread.turnCount > 1 ? ' <span style="color:var(--text-muted);font-size:11px">(' + thread.turnCount + 'ターン)</span>' : ''}</div>
+          <div class="h-answer">${escapeHtml(preview)}</div>
+          <div class="h-meta">${dateStr}${isActive ? ' · 現在の会話' : ''}</div>
+        </div>`;
+      }).join('');
+    } catch {
+      list.innerHTML = '<div class="history-empty">履歴の読み込みに失敗しました</div>';
     }
-    list.innerHTML = sorted.map(thread => {
-      const date = new Date(thread.updatedAt);
-      const dateStr = `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
-      const lastTurn = thread.turns[thread.turns.length - 1];
-      const preview = lastTurn ? (lastTurn.answer || '').replace(/\*\*/g, '').replace(/[|#\-]/g, ' ').trim().slice(0, 150) : '';
-      const isActive = thread.id === sessionId;
-      return `<div class="history-item${isActive ? ' active' : ''}" onclick="openThread('${thread.id}')">
-        <div class="h-query">${escapeHtml(thread.title)}${thread.turns.length > 1 ? ' <span style="color:var(--text-muted);font-size:11px">(' + thread.turns.length + 'ターン)</span>' : ''}</div>
-        <div class="h-answer">${escapeHtml(preview)}</div>
-        <div class="h-meta">${dateStr}${isActive ? ' · 現在の会話' : ''}</div>
-      </div>`;
-    }).join('');
   }
 
-  function openThread(threadId) {
+  async function openThread(tid) {
     // sessionIdを切り替え
-    sessionId = threadId;
+    sessionId = tid;
     localStorage.setItem('finx_session_id', sessionId);
 
-    // チャット画面に切り替え
     showPage('chat');
     messagesEl.innerHTML = '';
     if (welcomeEl && welcomeEl.parentNode) welcomeEl.remove();
 
-    // スレッドの全ターンを描画
-    const threads = getThreads();
-    const thread = threads[threadId];
-    if (!thread) return;
+    // サーバーからスレッドの全ターンを取得
+    try {
+      const res = await fetch(`/api/conversations?id=${encodeURIComponent(tid)}`);
+      const data = await res.json();
+      const turns = data.turns || [];
 
-    for (const turn of thread.turns) {
-      const userMsg = document.createElement('div');
-      userMsg.className = 'msg msg-user';
-      userMsg.innerHTML = `<div class="bubble">${escapeHtml(turn.query)}</div>`;
-      messagesEl.appendChild(userMsg);
+      for (const turn of turns) {
+        const userMsg = document.createElement('div');
+        userMsg.className = 'msg msg-user';
+        userMsg.innerHTML = `<div class="bubble">${escapeHtml(turn.userMessage)}</div>`;
+        messagesEl.appendChild(userMsg);
 
-      const assistantMsg = document.createElement('div');
-      assistantMsg.className = 'msg msg-assistant';
-      const bubbleEl = document.createElement('div');
-      bubbleEl.className = 'bubble';
-      bubbleEl.innerHTML = renderMarkdown(turn.answer);
-      assistantMsg.appendChild(bubbleEl);
-      messagesEl.appendChild(assistantMsg);
+        const assistantMsg = document.createElement('div');
+        assistantMsg.className = 'msg msg-assistant';
+        const bubbleEl = document.createElement('div');
+        bubbleEl.className = 'bubble';
+        bubbleEl.innerHTML = renderMarkdown(turn.assistantMessage);
+        assistantMsg.appendChild(bubbleEl);
+        messagesEl.appendChild(assistantMsg);
+      }
+      scrollToBottom();
+    } catch {
+      messagesEl.innerHTML = '<div class="history-empty">スレッドの読み込みに失敗しました</div>';
     }
-    scrollToBottom();
   }
 
   // HTMLエスケープ

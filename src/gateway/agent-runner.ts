@@ -117,7 +117,9 @@ export type AgentRunRequest = {
   groupContext?: GroupContext;
   /** Vision: attached image to include in the prompt */
   image?: ImageAttachment;
-  /** FollowUpResolverで解決済みのクエリ（元のqueryと異なる場合にセット） */
+  /** 生のユーザー入力（画像前置き・follow-up解決前の原文） */
+  rawUserMessage?: string;
+  /** FollowUpResolverで解決済みのクエリ（解決した場合のみセット） */
   resolvedQuery?: string;
 };
 
@@ -154,7 +156,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
           turnId: `${req.sessionKey}-${Date.now()}`,
           threadId: req.sessionKey,
           timestamp: new Date().toISOString(),
-          userMessage: req.query,
+          userMessage: req.rawUserMessage ?? req.query,
           resolvedUserMessage: req.resolvedQuery,
           assistantMessage: finalAnswer,
           offeredNextActions: extractOfferedNextActions(finalAnswer),

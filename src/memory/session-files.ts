@@ -8,6 +8,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { listThreads, getTurns } from '../conversation/index.js';
 
 export type SessionEntry = {
   /** Formatted text: "User: ...\nAssistant: ..." */
@@ -73,6 +74,38 @@ export async function parseSessionTranscripts(chatHistoryPath: string): Promise<
       timestamp: msg.timestamp,
     });
   }
+
+  return entries;
+}
+
+/**
+ * ConversationThreadStoreからWeb会話をSessionEntryに変換
+ * memory_searchの検索対象にWeb会話を載せる（FR-5対応）
+ */
+export async function parseThreadTranscripts(): Promise<SessionEntry[]> {
+  const entries: SessionEntry[] = [];
+
+  try {
+    const threads = await listThreads(50);
+    for (const meta of threads) {
+      try {
+        const turns = await getTurns(meta.threadId);
+        for (const turn of turns) {
+          if (!turn.userMessage || !turn.assistantMessage) continue;
+
+          const userPart = normalizeWhitespace(turn.userMessage);
+          const assistantPart = normalizeWhitespace(turn.assistantMessage);
+          const content = `User: ${userPart}\nAssistant: ${assistantPart}`;
+
+          entries.push({
+            content,
+            contentHash: hashContent(content),
+            timestamp: turn.timestamp,
+          });
+        }
+      } catch {}
+    }
+  } catch {}
 
   return entries;
 }

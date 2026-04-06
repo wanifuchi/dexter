@@ -9,10 +9,12 @@
     "api/paper-trade.ts": { "maxDuration": 30, "includeFiles": "src/**" },
     "api/line-webhook.ts": { "maxDuration": 10, "includeFiles": "src/**" },
     "api/auto-strategy-config.ts": { "maxDuration": 10, "includeFiles": "src/**" },
-    "api/cron/index.ts": { "maxDuration": 60, "includeFiles": "src/**" }
+    "api/cron/index.ts": { "maxDuration": 60, "includeFiles": "src/**" },
+    "api/conversations.ts": { "maxDuration": 10, "includeFiles": "src/**" }
   },
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/api/conversations", "destination": "/api/conversations" },
     { "source": "/api/chat", "destination": "/api/chat" },
     { "source": "/api/portfolio", "destination": "/api/data?type=portfolio" },
     { "source": "/api/dividends", "destination": "/api/data?type=dividends" },

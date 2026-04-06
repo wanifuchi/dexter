@@ -1,9 +1,6 @@
 /**
  * Vercel Serverless Function — /api/chat
  * SSE streaming endpoint for the Finx chat agent.
- *
- * Uses Node.js runtime (not Edge) so that better-sqlite3 and all
- * LangChain providers work without changes.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { runAgentForMessage } from '../src/gateway/agent-runner.js';
@@ -11,34 +8,24 @@ import { resolveProvider } from '../src/providers.js';
 import type { AgentEvent } from '../src/agent/types.js';
 import { resolveFollowUp, getRecentTurns } from '../src/conversation/index.js';
 
-// Allow up to 5 minutes for complex analyses
 export const maxDuration = 300;
 
 const DEFAULT_MODEL = process.env.DEXTER_MODEL ?? 'gpt-5.4';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const body = req.body as { query?: string; sessionId?: string; image?: { base64: string; mimeType: string } } | undefined;
-  const query = body?.query?.trim();
+  const rawQuery = body?.query?.trim();
   const image = body?.image;
 
-  if (!query) {
-    return res.status(400).json({ error: 'query is required' });
-  }
+  if (!rawQuery) return res.status(400).json({ error: 'query is required' });
 
-  // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -52,12 +39,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // FollowUpResolver: 短い追撃メッセージを解決
     const recentTurns = await getRecentTurns(sessionKey, 6);
-    const resolution = resolveFollowUp(query, recentTurns);
+    const resolution = resolveFollowUp(rawQuery, recentTurns);
 
-    let effectiveQuery = query;
+    // agentに渡すクエリ（follow-up解決後 + 画像前置き）
+    let agentQuery = resolution.wasResolved ? resolution.resolvedQuery : rawQuery;
+
     if (resolution.wasResolved) {
-      effectiveQuery = resolution.resolvedQuery;
-      // クライアントに解決結果を通知（UI表示用、未対応クライアントは無視可能）
       send('resolved_query', {
         originalQuery: resolution.originalQuery,
         resolvedQuery: resolution.resolvedQuery,
@@ -65,14 +52,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 画像が添付されている場合、Visionプロンプトとしてクエリに統合
     if (image) {
-      effectiveQuery = `[画像が添付されています。以下の質問に画像の内容を踏まえて回答してください]\n\n${effectiveQuery}`;
+      agentQuery = `[画像が添付されています。以下の質問に画像の内容を踏まえて回答してください]\n\n${agentQuery}`;
     }
 
     const answer = await runAgentForMessage({
       sessionKey,
-      query: effectiveQuery,
+      // agentに渡すのはfollow-up解決後+画像前置き済みのクエリ
+      query: agentQuery,
+      // 生のユーザー入力（内部テキスト混入なし）
+      rawUserMessage: rawQuery,
+      // follow-up解決した場合のみセット
       resolvedQuery: resolution.wasResolved ? resolution.resolvedQuery : undefined,
       image,
       model: DEFAULT_MODEL,

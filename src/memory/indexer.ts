@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { dirname } from 'node:path';
 import type { MemoryDatabase } from './database.js';
 import { chunkMemoryText } from './chunker.js';
-import { parseSessionTranscripts } from './session-files.js';
+import { parseSessionTranscripts, parseThreadTranscripts } from './session-files.js';
 import type { MemoryEmbeddingClient, MemorySyncStats } from './types.js';
 import { MemoryStore } from './store.js';
 
@@ -160,7 +160,12 @@ export class MemoryIndexer {
     force: boolean,
   ): Promise<{ indexed: number; updated: number; removed: number }> {
     const chatHistoryPath = this.store.getChatHistoryPath();
-    const entries = await parseSessionTranscripts(chatHistoryPath);
+    // CLI chat_history.json + Web thread store の両方から取得
+    const [fileEntries, threadEntries] = await Promise.all([
+      parseSessionTranscripts(chatHistoryPath),
+      parseThreadTranscripts(),
+    ]);
+    const entries = [...fileEntries, ...threadEntries];
 
     if (entries.length === 0) {
       const removed = this.db.deleteChunksForFile(SESSION_FILE_PATH);

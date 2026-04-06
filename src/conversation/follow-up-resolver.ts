@@ -1,13 +1,14 @@
 /**
  * FollowUpResolver — 短い追撃メッセージをアプリケーション層で解決
  *
- * 「続けて」「1,2を出して」「両方」等のメッセージを、
- * 直前のassistant回答の offeredNextActions を参照して
- * 具体的なクエリに展開する。
+ * 明示的パターン（続けて/1,2/両方等）のみ解決する。
+ * 短いだけの銘柄質問・価格質問・新規分析依頼はdirect扱い。
+ * 低信頼ケースでは無理にrewriteせず、未解決のまま通す。
  */
 import type { ConversationTurn, FollowUpResolution, OfferedNextAction } from './types.js';
 
-// 既知のfollow-upパターン
+// === 明示的follow-upパターン（これらに一致する場合のみ解決する） ===
+
 const CONTINUE_PATTERNS = [
   /^(続けて|そのまま続けて|そのまま|続き|go\s*ahead|do\s*it|proceed|continue)$/i,
 ];
@@ -22,65 +23,54 @@ const YES_PATTERNS = [
 ];
 
 const COREFERENCE_PATTERNS = [
-  /^(それ|これ|じゃあそれ|それで|それでいい|それやって|具体的に)$/i,
-  /^(それ|これ)を?(出して|やって|お願い|教えて|見せて)/i,
+  /^(それで|じゃあそれ|それでいい|それやって|具体的に)$/i,
+  /^(それ|これ)を?(出して|やって|お願い|教えて|見せて)$/i,
 ];
 
-// 数字参照パターン（1, 2, 1と2, 1,2 等）
+// 数字参照パターン
 const NUMBER_REF_PATTERN = /^(\d+)\s*[,、と]\s*(\d+)(?:\s*.+)?$/;
-const SINGLE_NUMBER_PATTERN = /^(\d+)(?:\s*.+)?$/;
-// 「1,2を具体的に出して」のような形
-const NUMBER_WITH_INSTRUCTION = /^(\d+(?:\s*[,、と]\s*\d+)*)\s*を?\s*(.+)$/;
+const SINGLE_NUMBER_PATTERN = /^(\d+)$/;
+// 「1,2を具体的に出して」— 必ず「を」が必要（「1と2」だけだと誤マッチするため）
+const NUMBER_WITH_INSTRUCTION = /^(\d+(?:\s*[,、と]\s*\d+)*)\s*を\s*(.+)$/;
 
 /**
- * メッセージが短い追撃かどうかを判定
+ * 明示的follow-upパターンに一致するか判定
+ * 「短いだけ」では判定しない — 明示パターンのみ
  */
-function isShortFollowUp(query: string): boolean {
+function matchesFollowUpPattern(query: string): boolean {
   const trimmed = query.trim();
-  // 10文字以下は短い追撃の可能性が高い
-  if (trimmed.length <= 10) return true;
-  // 30文字以下で既知パターンに一致
-  if (trimmed.length <= 30) {
-    const allPatterns = [
-      ...CONTINUE_PATTERNS, ...BOTH_PATTERNS, ...YES_PATTERNS,
-      ...COREFERENCE_PATTERNS, NUMBER_REF_PATTERN, SINGLE_NUMBER_PATTERN,
-      NUMBER_WITH_INSTRUCTION,
-    ];
-    return allPatterns.some(p => p.test(trimmed));
-  }
+  const allExplicitPatterns = [
+    ...CONTINUE_PATTERNS, ...BOTH_PATTERNS, ...YES_PATTERNS, ...COREFERENCE_PATTERNS,
+  ];
+  // 明示パターンに完全一致
+  if (allExplicitPatterns.some(p => p.test(trimmed))) return true;
+  // 数字参照（"1", "1,2", "1,2を具体的に出して"等）
+  if (SINGLE_NUMBER_PATTERN.test(trimmed)) return true;
+  if (NUMBER_REF_PATTERN.test(trimmed)) return true;
+  if (NUMBER_WITH_INSTRUCTION.test(trimmed)) return true;
   return false;
 }
 
 /**
- * 数字参照を解析（"1,2" → ["1","2"], "1" → ["1"]）
+ * 数字参照を解析
  */
 function parseNumberRefs(query: string): string[] {
   const trimmed = query.trim();
 
-  // "1,2を具体的に出して" パターン
   const withInstr = NUMBER_WITH_INSTRUCTION.exec(trimmed);
   if (withInstr) {
     return withInstr[1].split(/[,、と]/).map(s => s.trim()).filter(Boolean);
   }
 
-  // "1,2" or "1と2" パターン
   const multi = NUMBER_REF_PATTERN.exec(trimmed);
-  if (multi) {
-    return [multi[1], multi[2]];
-  }
+  if (multi) return [multi[1], multi[2]];
 
-  // "1" 単体
   const single = SINGLE_NUMBER_PATTERN.exec(trimmed);
-  if (single) {
-    return [single[1]];
-  }
+  if (single) return [single[1]];
 
   return [];
 }
 
-/**
- * offeredNextActionsから対応するアクションを解決
- */
 function resolveNumberedActions(
   keys: string[],
   actions: OfferedNextAction[],
@@ -89,21 +79,17 @@ function resolveNumberedActions(
 ): FollowUpResolution | null {
   const matched = keys
     .map(k => actions.find(a => a.key === k))
-    .filter((a): a is OfferedNextAction => a !== null && a !== undefined);
+    .filter((a): a is OfferedNextAction => a != null);
 
   if (matched.length === 0) return null;
 
-  const actionDescriptions = matched
-    .map((a, i) => `${i + 1}. ${a.instruction}`)
-    .join(' と ');
-
+  const actionDescriptions = matched.map((a, i) => `${i + 1}. ${a.instruction}`).join(' と ');
   const suffix = additionalInstruction ? ` を、${additionalInstruction}` : '';
-  const resolvedQuery = `前の回答で提案した ${actionDescriptions}${suffix}`;
 
   return {
     wasResolved: true,
     originalQuery,
-    resolvedQuery,
+    resolvedQuery: `前の回答で提案した ${actionDescriptions}${suffix}`,
     reason: 'numbered_action',
     confidence: 0.95,
     matchedActionKeys: matched.map(a => a.key),
@@ -118,75 +104,67 @@ export function resolveFollowUp(
   recentTurns: ConversationTurn[],
 ): FollowUpResolution {
   const trimmed = query.trim();
+  const directResult: FollowUpResolution = {
+    wasResolved: false,
+    originalQuery: query,
+    resolvedQuery: query,
+    reason: 'direct',
+    confidence: 1.0,
+  };
 
-  // 短い追撃でなければそのまま返す
-  if (!isShortFollowUp(trimmed)) {
-    return {
-      wasResolved: false,
-      originalQuery: query,
-      resolvedQuery: query,
-      reason: 'direct',
-      confidence: 1.0,
-    };
-  }
+  // 明示パターンに一致しなければ即direct
+  if (!matchesFollowUpPattern(trimmed)) return directResult;
 
-  // 直前のターンを取得
+  // 履歴がなければ解決不可 → direct
   const lastTurn = recentTurns.length > 0 ? recentTurns[recentTurns.length - 1] : null;
-  const actions = lastTurn?.offeredNextActions ?? [];
+  if (!lastTurn) return directResult;
 
-  // 1. 数字参照の解決（"1,2を具体的に出して"等）
+  const actions = lastTurn.offeredNextActions ?? [];
+
+  // 1. 数字参照の解決
   const numberRefs = parseNumberRefs(trimmed);
   if (numberRefs.length > 0 && actions.length > 0) {
-    // 追加指示を抽出（"を具体的に出して"の部分）
     const withInstr = NUMBER_WITH_INSTRUCTION.exec(trimmed);
     const additionalInstruction = withInstr ? withInstr[2] : '';
-
     const resolution = resolveNumberedActions(numberRefs, actions, query, additionalInstruction);
     if (resolution) {
-      resolution.matchedTurnId = lastTurn?.turnId;
+      resolution.matchedTurnId = lastTurn.turnId;
       return resolution;
     }
   }
 
-  // 2. 「両方」「全部」→ 全候補を実行
+  // 2. 「両方」→ 全候補
   if (BOTH_PATTERNS.some(p => p.test(trimmed)) && actions.length > 0) {
-    const allDescriptions = actions
-      .map((a, i) => `${i + 1}. ${a.instruction}`)
-      .join(' と ');
-
+    const allDescriptions = actions.map((a, i) => `${i + 1}. ${a.instruction}`).join(' と ');
     return {
       wasResolved: true,
       originalQuery: query,
       resolvedQuery: `前の回答で提案した ${allDescriptions} の両方を実行して`,
       reason: 'all_actions',
       confidence: 0.95,
-      matchedTurnId: lastTurn?.turnId,
+      matchedTurnId: lastTurn.turnId,
       matchedActionKeys: actions.map(a => a.key),
     };
   }
 
-  // 3. 「続けて」「そのまま」「はい」→ 提案があれば全実行、なければ会話を続行
+  // 3. 「続けて」「はい」→ 提案があれば全実行
   const isContinue = CONTINUE_PATTERNS.some(p => p.test(trimmed));
   const isYes = YES_PATTERNS.some(p => p.test(trimmed));
   if ((isContinue || isYes) && actions.length > 0) {
-    const allDescriptions = actions
-      .map((a, i) => `${i + 1}. ${a.instruction}`)
-      .join(' と ');
-
+    const allDescriptions = actions.map((a, i) => `${i + 1}. ${a.instruction}`).join(' と ');
     return {
       wasResolved: true,
       originalQuery: query,
       resolvedQuery: `前の回答で提案した ${allDescriptions} を実行して`,
       reason: 'all_actions',
       confidence: 0.9,
-      matchedTurnId: lastTurn?.turnId,
+      matchedTurnId: lastTurn.turnId,
       matchedActionKeys: actions.map(a => a.key),
     };
   }
 
-  // 4. 照応表現（「それ」「具体的に」）→ 直前assistantの内容を参照
-  if (COREFERENCE_PATTERNS.some(p => p.test(trimmed)) && lastTurn) {
-    // 直前の回答の最後の部分（提案部分）を参照
+  // 4. 照応表現 → 直前回答の末尾を参照
+  if (COREFERENCE_PATTERNS.some(p => p.test(trimmed))) {
     const preview = lastTurn.assistantMessage.slice(-200);
     return {
       wasResolved: true,
@@ -198,8 +176,9 @@ export function resolveFollowUp(
     };
   }
 
-  // 5. 短いが解決できない場合 → 直前のコンテキストを付加して通す
-  if (lastTurn && trimmed.length <= 10) {
+  // 5. パターンに一致したがactionsがない場合（「続けて」だがofferedActionsなし）
+  //    → コンテキスト付きで通す
+  if (isContinue || isYes) {
     const preview = lastTurn.assistantMessage.slice(-300);
     return {
       wasResolved: true,
@@ -211,11 +190,6 @@ export function resolveFollowUp(
     };
   }
 
-  return {
-    wasResolved: false,
-    originalQuery: query,
-    resolvedQuery: query,
-    reason: 'direct',
-    confidence: 1.0,
-  };
+  // 数字参照だがactionsなし → direct（数字が新規質問の可能性）
+  return directResult;
 }
