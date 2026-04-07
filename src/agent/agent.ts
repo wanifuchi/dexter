@@ -21,6 +21,10 @@ import {
   checkRecommendationEvidence,
   buildEvidenceInsufficientResponse,
   containsPersonalizationExpressions,
+  containsHedgingRecommendation,
+  checkPerTickerEvidence,
+  buildTickerEvidenceInsufficientResponse,
+  extractRecommendedTickers,
   shouldBlockMemory,
   type RecommendationIntent,
   type ToolCallResult,
@@ -269,13 +273,29 @@ export class Agent {
     if (recommendationIntent?.isTimeSensitive && toolResults && failedTools) {
       const evidence = checkRecommendationEvidence(toolResults, failedTools);
 
-      // Evidence不足チェック: 有効なcurrent dataが2件未満
+      // Layer 1: Query-level evidence不足
       if (!evidence.hasSufficientEvidence) {
         finalAnswer = buildEvidenceInsufficientResponse(evidence);
       }
-      // Final answer guard: non-personalizedなのにpersonalization表現が混ざっている
+      // Layer 2: Personalization表現の混入
       else if (!recommendationIntent.isExplicitlyPersonalized && containsPersonalizationExpressions(finalAnswer)) {
         finalAnswer = buildEvidenceInsufficientResponse(evidence);
+      }
+      // Layer 3: Hedging recommendation（言い訳しながらticker推薦）
+      else if (containsHedgingRecommendation(finalAnswer)) {
+        finalAnswer = buildTickerEvidenceInsufficientResponse(
+          checkPerTickerEvidence(finalAnswer, toolResults),
+        );
+      }
+      // Layer 4: Ticker-level evidence不足
+      else {
+        const tickers = extractRecommendedTickers(finalAnswer);
+        if (tickers.length >= 2) {
+          const tickerEvidence = checkPerTickerEvidence(finalAnswer, toolResults);
+          if (!tickerEvidence.majorityHaveEvidence) {
+            finalAnswer = buildTickerEvidenceInsufficientResponse(tickerEvidence);
+          }
+        }
       }
     }
 

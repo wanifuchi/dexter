@@ -5,6 +5,11 @@ import {
   isToolResultValid,
   containsPersonalizationExpressions,
   shouldBlockMemory,
+  extractRecommendedTickers,
+  hasTickerEvidence,
+  checkPerTickerEvidence,
+  containsHedgingRecommendation,
+  buildTickerEvidenceInsufficientResponse,
 } from '../recommendation-guard.js';
 
 describe('RecommendationIntentClassifier', () => {
@@ -242,16 +247,105 @@ describe('Integration: memory blocked + current data insufficient', () => {
     const intent = classifyRecommendationIntent('今日のおすすめ銘柄');
     expect(shouldBlockMemory(intent)).toBe(true);
 
-    // memory がブロックされているので memory_search の結果はない
     const evidence = checkRecommendationEvidence(
-      [], // memory_search を呼べなかったので tool results は空か current data のみ
+      [],
       ['get_market_data', 'web_search'],
     );
     expect(evidence.hasSufficientEvidence).toBe(false);
 
     const response = buildEvidenceInsufficientResponse(evidence);
     expect(response).toContain('具体的な銘柄推薦は控えます');
-    // フォールバック回答は推薦ではなく代替案の提示のみ
     expect(response).toContain('代わりにできること');
+  });
+});
+
+describe('extractRecommendedTickers', () => {
+  it('回答文からticker symbolsを抽出する', () => {
+    const answer = '今日のおすすめは SOUN, QBTS, RGTI, BBAI です。';
+    const tickers = extractRecommendedTickers(answer);
+    expect(tickers).toContain('SOUN');
+    expect(tickers).toContain('QBTS');
+    expect(tickers).toContain('RGTI');
+    expect(tickers).toContain('BBAI');
+  });
+
+  it('一般的な英単語は除外する', () => {
+    const answer = 'THE BEST ETF FOR USD is VOO';
+    const tickers = extractRecommendedTickers(answer);
+    expect(tickers).not.toContain('THE');
+    expect(tickers).not.toContain('ETF');
+    expect(tickers).not.toContain('USD');
+    expect(tickers).toContain('VOO');
+  });
+});
+
+describe('Ticker-level evidence', () => {
+  const toolResultsWithSOUN = [
+    { tool: 'get_market_data', result: JSON.stringify({ data: { SOUN: { price: 5.2 }, NVDA: { price: 177 } } }) },
+    { tool: 'web_search', result: JSON.stringify({ data: { results: ['SOUN earnings beat', 'NVDA AI growth'] } }) },
+  ];
+
+  it('ticker個別のevidence — SOUNはtool resultsに含まれている', () => {
+    expect(hasTickerEvidence('SOUN', toolResultsWithSOUN)).toBe(true);
+  });
+
+  it('ticker個別のevidence — QBTSはtool resultsに含まれていない', () => {
+    expect(hasTickerEvidence('QBTS', toolResultsWithSOUN)).toBe(false);
+  });
+
+  it('query-level evidence十分だが、推薦ticker個別のニュース/材料が不足 → ブロック', () => {
+    const answer = '今日のおすすめは SOUN, QBTS, RGTI, BBAI です。';
+    const tickerEvidence = checkPerTickerEvidence(answer, toolResultsWithSOUN);
+    // SOUN だけ evidence あり、他3つはなし → majority は false
+    expect(tickerEvidence.tickersWithEvidence).toContain('SOUN');
+    expect(tickerEvidence.tickersWithoutEvidence.length).toBeGreaterThanOrEqual(2);
+    expect(tickerEvidence.majorityHaveEvidence).toBe(false);
+  });
+
+  it('全推薦tickerにevidenceがある → 許可', () => {
+    const answer = '今日のおすすめは SOUN と NVDA です。';
+    const tickerEvidence = checkPerTickerEvidence(answer, toolResultsWithSOUN);
+    expect(tickerEvidence.allHaveEvidence).toBe(true);
+    expect(tickerEvidence.majorityHaveEvidence).toBe(true);
+  });
+});
+
+describe('Hedging recommendation guard', () => {
+  it('「ツール不調」+ ticker列挙 → hedging検出', () => {
+    const answer = 'ツール不調が多かったですが、候補としてはSOUN, QBTS, RGTIが注目です。';
+    expect(containsHedgingRecommendation(answer)).toBe(true);
+  });
+
+  it('「監視優先リスト」+ ticker列挙 → hedging検出', () => {
+    const answer = '監視優先リストとして SOUN / QBTS を挙げておきます。';
+    expect(containsHedgingRecommendation(answer)).toBe(true);
+  });
+
+  it('「断定買いではない」+ ticker列挙 → hedging検出', () => {
+    const answer = '断定買いではないですが、RGTI と BBAI は面白い動きをしています。';
+    expect(containsHedgingRecommendation(answer)).toBe(true);
+  });
+
+  it('通常の推薦（hedgingなし）→ false', () => {
+    const answer = '本日のおすすめは NVDA です。PER36倍、営業利益率65.6%で強い成長が続いています。';
+    expect(containsHedgingRecommendation(answer)).toBe(false);
+  });
+
+  it('ticker 1個だけ → hedging検出しない（ticker 2個以上が条件）', () => {
+    const answer = 'ツール不調でしたが NVDA は引き続き強いです。';
+    expect(containsHedgingRecommendation(answer)).toBe(false);
+  });
+});
+
+describe('Fallback response for ticker evidence insufficient', () => {
+  it('ticker evidence不足時はtickerなしの短い回答', () => {
+    const tickerResult = checkPerTickerEvidence(
+      'おすすめは SOUN, QBTS, RGTI です',
+      [{ tool: 'get_market_data', result: JSON.stringify({ data: { SPY: { price: 500 } } }) }],
+    );
+    const response = buildTickerEvidenceInsufficientResponse(tickerResult);
+    expect(response).toContain('見送ります');
+    expect(response).not.toContain('SOUN');
+    expect(response).not.toContain('QBTS');
   });
 });

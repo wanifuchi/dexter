@@ -202,6 +202,129 @@ export function containsPersonalizationExpressions(answer: string): boolean {
   return PERSONALIZATION_EXPRESSIONS.some(p => p.test(answer));
 }
 
+// === Ticker-level Evidence Guard ===
+
+// ティッカーシンボルを抽出（大文字1-5文字、$接頭辞対応）
+const TICKER_PATTERN = /\$?([A-Z]{1,5})\b/g;
+
+// ティッカーとして誤検出しやすい一般的な英単語を除外
+const TICKER_EXCLUDE = new Set([
+  'THE', 'FOR', 'AND', 'BUT', 'NOT', 'ARE', 'WAS', 'HAS', 'HAD', 'HAVE',
+  'WITH', 'THIS', 'THAT', 'FROM', 'WILL', 'BEEN', 'EACH', 'SOME', 'SUCH',
+  'ALL', 'ANY', 'CAN', 'MAY', 'NOW', 'HOW', 'WHO', 'WHY', 'TOP', 'NEW',
+  'ONE', 'TWO', 'DAY', 'BUY', 'ETF', 'IPO', 'CEO', 'CFO', 'EPS', 'RSI',
+  'GDP', 'CPI', 'FED', 'SEC', 'USA', 'NYSE', 'API', 'URL', 'SSE', 'OK',
+  'VS', 'PE', 'PB', 'ROE', 'ROA', 'ADR', 'NISA', 'SBI',
+  'MAX', 'MIN', 'AVG', 'USD', 'JPY', 'EUR', 'GBP',
+  'BULL', 'BEAR', 'LONG', 'SHORT', 'HOLD', 'SELL',
+]);
+
+/**
+ * 回答文から推薦ティッカーを抽出
+ */
+export function extractRecommendedTickers(answer: string): string[] {
+  const tickers = new Set<string>();
+  let match: RegExpExecArray | null;
+  TICKER_PATTERN.lastIndex = 0;
+  while ((match = TICKER_PATTERN.exec(answer)) !== null) {
+    const t = match[1];
+    if (!TICKER_EXCLUDE.has(t) && t.length >= 2) {
+      tickers.add(t);
+    }
+  }
+  return [...tickers];
+}
+
+/**
+ * 特定のtickerに関するevidenceがtool resultsに含まれるか判定
+ */
+export function hasTickerEvidence(ticker: string, toolResults: ToolCallResult[]): boolean {
+  const t = ticker.toUpperCase();
+  for (const { tool, result } of toolResults) {
+    if (MEMORY_ONLY_TOOLS.has(tool)) continue;
+    if (!CURRENT_DATA_TOOLS.has(tool)) continue;
+    if (!isToolResultValid(tool, result)) continue;
+
+    // tool result にこの ticker が含まれているか
+    const upper = result.toUpperCase();
+    if (upper.includes(t)) return true;
+  }
+  return false;
+}
+
+export type TickerEvidenceResult = {
+  totalTickers: number;
+  tickersWithEvidence: string[];
+  tickersWithoutEvidence: string[];
+  allHaveEvidence: boolean;
+  majorityHaveEvidence: boolean;
+};
+
+/**
+ * 推薦された各tickerにper-ticker evidenceがあるか判定
+ */
+export function checkPerTickerEvidence(
+  answer: string,
+  toolResults: ToolCallResult[],
+): TickerEvidenceResult {
+  const tickers = extractRecommendedTickers(answer);
+  const withEvidence: string[] = [];
+  const withoutEvidence: string[] = [];
+
+  for (const ticker of tickers) {
+    if (hasTickerEvidence(ticker, toolResults)) {
+      withEvidence.push(ticker);
+    } else {
+      withoutEvidence.push(ticker);
+    }
+  }
+
+  const total = tickers.length;
+  return {
+    totalTickers: total,
+    tickersWithEvidence: withEvidence,
+    tickersWithoutEvidence: withoutEvidence,
+    allHaveEvidence: total > 0 && withoutEvidence.length === 0,
+    majorityHaveEvidence: total > 0 && withEvidence.length > total / 2,
+  };
+}
+
+// === Hedging Recommendation Guard ===
+
+const HEDGING_PATTERNS = [
+  /ツール不調/,
+  /裏取り不足/,
+  /監視優先/,
+  /断定買いではない/,
+  /十分な定量裏取りがない/,
+  /候補というより/,
+  /データが不十分.*(?:だが|ですが|けど).*(?:候補|銘柄|ティッカー)/,
+  /不十分.*(?:だが|ですが).*(?:挙げ|出し|リスト)/,
+  /十分.*検証.*でき(?:てい)?ない.*(?:が|けど)/,
+  /裏付け.*(?:取れ|でき)(?:てい)?ない/,
+  /あくまで.*(?:候補|参考|モニタリング)/,
+  /tool.*(?:fail|error|issue)/i,
+  /insufficient.*data.*(?:but|however)/i,
+];
+
+/**
+ * 回答が「言い訳しながらticker推薦」しているか検出
+ */
+export function containsHedgingRecommendation(answer: string): boolean {
+  const hasTickers = extractRecommendedTickers(answer).length >= 2;
+  if (!hasTickers) return false;
+  return HEDGING_PATTERNS.some(p => p.test(answer));
+}
+
+/**
+ * Ticker-level evidence不足時のfallback
+ */
+export function buildTickerEvidenceInsufficientResponse(
+  tickerResult: TickerEvidenceResult,
+): string {
+  return '今回は推薦候補の個別銘柄について十分な最新データ（価格・ニュース・材料）を取得できなかったため、具体的な銘柄推薦は見送ります。\n\n特定の銘柄を指定して分析を依頼するか、条件を指定してスクリーニングしてください。';
+}
+
 /**
  * evidence不足時のフォールバック回答を生成
  */
