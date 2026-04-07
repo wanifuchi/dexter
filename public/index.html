@@ -47,10 +47,15 @@
       font-family: 'Hiragino Kaku Gothic ProN', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
-      height: 100vh;
+      height: 100dvh;
+      height: 100vh; /* dvh非対応ブラウザ用フォールバック */
       display: flex;
       flex-direction: column;
       overflow: hidden;
+    }
+
+    @supports (height: 100dvh) {
+      body { height: 100dvh; }
     }
 
     header {
