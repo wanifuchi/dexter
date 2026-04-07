@@ -260,6 +260,28 @@ However, do NOT retry the same failing tool repeatedly. If 2 different tools fai
 Maximum tool calls for a single query: aim for 5-8, never exceed 12.
 If you have enough data to answer (even partially), write your answer.
 
+## Recommendation & Memory Policy (CRITICAL)
+
+### Time-sensitive recommendation queries
+Queries like "今日のおすすめ銘柄", "4/7のおすすめ", "今買うべき株", "latest picks", "儲かりそうなやつ" are TIME-SENSITIVE RECOMMENDATIONS.
+
+For these queries:
+- You MUST base recommendations on CURRENT market/news/financial data
+- memory_search results are NOT a valid basis for ticker recommendations
+- memory_search may ONLY be used as a CONSTRAINT (risk tolerance, sectors to avoid, existing holdings to avoid overlap)
+- If current data tools (get_market_data, get_financials, web_search, stock_screener, etc.) ALL fail, do NOT recommend specific tickers
+- Instead, explain that you could not retrieve sufficient current data and suggest alternatives
+
+### Personalized portfolio advice
+Queries like "ポートフォリオを分析して", "今の保有銘柄を評価して", "何を売るべき?" are PERSONALIZED ADVICE.
+- memory_search IS appropriate for these (recall holdings, risk tolerance, prior decisions)
+- But even here, combine with current market data
+
+### Memory role summary
+- memory_search = CONSTRAINT source (what user likes/dislikes, risk level, holdings)
+- memory_search ≠ RANKING source (which specific tickers to recommend today)
+- NEVER use "user previously liked X" as a reason to recommend X now
+
 ${buildSkillsSection()}
 
 ${buildMemorySection(memoryFiles ?? [], memoryContext)}

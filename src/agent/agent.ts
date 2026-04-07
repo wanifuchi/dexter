@@ -16,6 +16,12 @@ import { runMemoryFlush, shouldRunMemoryFlush } from '../memory/flush.js';
 import { resolveProvider } from '../providers.js';
 import type { ImageContent } from '../model/llm.js';
 import type { ConversationTurn } from '../conversation/types.js';
+import {
+  classifyRecommendationIntent,
+  checkRecommendationEvidence,
+  buildEvidenceInsufficientResponse,
+  type RecommendationIntent,
+} from './recommendation-guard.js';
 
 
 const DEFAULT_MODEL = 'gpt-5.4';
@@ -104,6 +110,9 @@ export class Agent {
 
     const ctx = createRunContext(query);
     const memoryFlushState = { alreadyFlushed: false };
+    const recommendationIntent = classifyRecommendationIntent(query);
+    const succeededTools: string[] = [];
+    const failedTools: string[] = [];
 
     // Build initial prompt with conversation history context
     let currentPrompt = this.buildInitialPrompt(query, inMemoryHistory, threadTurns);
@@ -170,13 +179,16 @@ export class Agent {
 
       // No tool calls = final answer is in this response
       if (typeof response === 'string' || !hasToolCalls(response)) {
-        yield* this.handleDirectResponse(responseText ?? '', ctx);
+        yield* this.handleDirectResponse(responseText ?? '', ctx, recommendationIntent, succeededTools, failedTools);
         return;
       }
 
       // Execute tools and add results to scratchpad (response is AIMessage here)
       for await (const event of this.toolExecutor.executeAll(response, ctx)) {
         yield event;
+        // Track tool successes and failures for recommendation evidence guard
+        if (event.type === 'tool_end') succeededTools.push(event.tool);
+        if (event.type === 'tool_error') failedTools.push(event.tool);
         if (event.type === 'tool_denied') {
           const totalTime = Date.now() - ctx.startTime;
           yield {
@@ -232,15 +244,29 @@ export class Agent {
 
   /**
    * Emit the response text as the final answer.
+   * For time-sensitive recommendation queries, check that current data evidence exists.
    */
   private async *handleDirectResponse(
     responseText: string,
-    ctx: RunContext
+    ctx: RunContext,
+    recommendationIntent?: RecommendationIntent,
+    succeededTools?: string[],
+    failedTools?: string[],
   ): AsyncGenerator<AgentEvent, void> {
+    let finalAnswer = responseText;
+
+    // Recommendation evidence guard: 時点依存の推薦クエリでcurrent dataが不足している場合はブロック
+    if (recommendationIntent?.isTimeSensitive && succeededTools && failedTools) {
+      const evidence = checkRecommendationEvidence(succeededTools, failedTools);
+      if (evidence.hasOnlyMemoryEvidence || (!evidence.hasCurrentDataEvidence && failedTools.length > 0)) {
+        finalAnswer = buildEvidenceInsufficientResponse(evidence);
+      }
+    }
+
     const totalTime = Date.now() - ctx.startTime;
     yield {
       type: 'done',
-      answer: responseText,
+      answer: finalAnswer,
       toolCalls: ctx.scratchpad.getToolCallRecords(),
       iterations: ctx.iteration,
       totalTime,
