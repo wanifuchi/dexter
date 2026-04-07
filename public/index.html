@@ -608,7 +608,7 @@
 
 <header>
   <div class="header-left">
-    <a class="logo-link" onclick="scrollToTop()"><span class="logo-text">Finx</span></a>
+    <a class="logo-link" onclick="newConversation()"><span class="logo-text">Finx</span></a>
   </div>
   <div class="header-right">
     <button class="nav-btn active" onclick="showPage('chat')" id="nav-chat">チャット</button>
@@ -1055,9 +1055,13 @@
     document.getElementById('image-preview').style.display = 'none';
   }
   // セッションIDをlocalStorageに永続化（ページリロードでも会話が続く）
+  function generateThreadId() {
+    return 'web-' + crypto.randomUUID();
+  }
+
   let sessionId = localStorage.getItem('finx_session_id');
   if (!sessionId) {
-    sessionId = 'web-' + Date.now().toString(36);
+    sessionId = generateThreadId();
     localStorage.setItem('finx_session_id', sessionId);
   }
 
@@ -1102,27 +1106,10 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  // TOPに戻る（ウェルカム画面に戻す）
+  // TOPに戻る（チャット内スクロールのみ、会話リセットしない）
   function scrollToTop() {
     showPage('chat');
-    messagesEl.innerHTML = '';
-    const welcome = document.createElement('div');
-    welcome.className = 'welcome';
-    welcome.id = 'welcome';
-    welcome.innerHTML = `
-      <h2>何を調べますか？</h2>
-      <p>銘柄分析、スクリーニング、財務比較など。<br>日本株・米国株どちらも対応しています。</p>
-      <div class="suggestions">
-        <div class="suggestion" onclick="sendSuggestion(this)">NVDAをペルソナ分析して（バフェット、リンチ、グレアム等の視点）</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">SOXLのBull vs Bear討論をして</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">FRBの利下げ確率を予測市場で調べて</div>
-        <div class="suggestion" onclick="sendSuggestion(this)">配当利回り5%以上で10年連続増配の銘柄をスクリーニング</div>
-      </div>`;
-    messagesEl.appendChild(welcome);
     messagesEl.scrollTop = 0;
-    // 新しい会話セッションを開始
-    sessionId = 'web-' + Date.now().toString(36);
-    localStorage.setItem('finx_session_id', sessionId);
   }
 
   // スクロール量に応じてTOPボタンの��示/非表示
@@ -1137,13 +1124,13 @@
 
   // --- 履歴管理 (server truth + localStorageキャッシュ) ---
   // localStorageは現在のスレッドの描画キャッシュ用のみ。正はサーバー側ThreadStore。
-  function saveToHistory(query, answer, stats) {
+  function saveToHistory(threadId, query, answer, stats) {
     // サーバー側ThreadStoreが正なのでローカルは軽量キャッシュのみ
     try {
       const cache = JSON.parse(localStorage.getItem('finx_thread_cache') || '{}');
-      if (!cache[sessionId]) cache[sessionId] = [];
-      cache[sessionId].push({ query, answer, date: new Date().toISOString() });
-      if (cache[sessionId].length > 50) cache[sessionId] = cache[sessionId].slice(-50);
+      if (!cache[threadId]) cache[threadId] = [];
+      cache[threadId].push({ query, answer, date: new Date().toISOString() });
+      if (cache[threadId].length > 50) cache[threadId] = cache[threadId].slice(-50);
       localStorage.setItem('finx_thread_cache', JSON.stringify(cache));
     } catch {}
   }
@@ -1192,7 +1179,6 @@
 
     showPage('chat');
     messagesEl.innerHTML = '';
-    if (welcomeEl && welcomeEl.parentNode) welcomeEl.remove();
 
     // サーバーからスレッドの全ターンを取得
     try {
@@ -1250,9 +1236,13 @@
     const query = inputEl.value.trim();
     if (!query || isProcessing) return;
 
+    // sessionIdを固定（送信中に会話切替されてもこのリクエストは元スレッドに紐づく）
+    const requestSessionId = sessionId;
+
     isProcessing = true;
     sendBtn.disabled = true;
 
+    const welcomeEl = document.getElementById('welcome');
     if (welcomeEl && welcomeEl.parentNode) welcomeEl.remove();
 
     const userMsg = document.createElement('div');
@@ -1298,7 +1288,7 @@
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, sessionId, ...(imageToSend && { image: { base64: imageToSend.base64, mimeType: imageToSend.mimeType } }) }),
+        body: JSON.stringify({ query, sessionId: requestSessionId, ...(imageToSend && { image: { base64: imageToSend.base64, mimeType: imageToSend.mimeType } }) }),
       });
 
       const reader = response.body.getReader();
@@ -1335,7 +1325,7 @@
     }
 
     // 履歴に保存
-    if (lastAnswer) saveToHistory(query, lastAnswer, lastStats);
+    if (lastAnswer) saveToHistory(requestSessionId, query, lastAnswer, lastStats);
 
     isProcessing = false;
     sendBtn.disabled = false;
@@ -1658,10 +1648,24 @@
   }
 
   function newConversation() {
-    sessionId = 'web-' + Date.now().toString(36);
+    sessionId = generateThreadId();
     localStorage.setItem('finx_session_id', sessionId);
+    showPage('chat');
     messagesEl.innerHTML = '';
-    welcomeEl.style.display = 'flex';
+    const welcome = document.createElement('div');
+    welcome.className = 'welcome';
+    welcome.id = 'welcome';
+    welcome.innerHTML = `
+      <h2>何を調べますか？</h2>
+      <p>銘柄分析、スクリーニング、財務比較など。<br>日本株・米国株どちらも対応しています。</p>
+      <div class="suggestions">
+        <div class="suggestion" onclick="sendSuggestion(this)">NVDAをペルソナ分析して（バフェット、リンチ、グレアム等の視点）</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">SOXLのBull vs Bear討論をして</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">FRBの利下げ確率を予測市場で調べて</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">配当利回り5%以上で10年連続増配の銘柄をスクリーニング</div>
+      </div>`;
+    messagesEl.appendChild(welcome);
+    messagesEl.scrollTop = 0;
   }
 
   function analyzeStock(ticker) {
