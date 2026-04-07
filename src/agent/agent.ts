@@ -20,7 +20,10 @@ import {
   classifyRecommendationIntent,
   checkRecommendationEvidence,
   buildEvidenceInsufficientResponse,
+  containsPersonalizationExpressions,
+  shouldBlockMemory,
   type RecommendationIntent,
+  type ToolCallResult,
 } from './recommendation-guard.js';
 
 
@@ -111,7 +114,7 @@ export class Agent {
     const ctx = createRunContext(query);
     const memoryFlushState = { alreadyFlushed: false };
     const recommendationIntent = classifyRecommendationIntent(query);
-    const succeededTools: string[] = [];
+    const toolResults: ToolCallResult[] = [];
     const failedTools: string[] = [];
 
     // Build initial prompt with conversation history context
@@ -179,15 +182,15 @@ export class Agent {
 
       // No tool calls = final answer is in this response
       if (typeof response === 'string' || !hasToolCalls(response)) {
-        yield* this.handleDirectResponse(responseText ?? '', ctx, recommendationIntent, succeededTools, failedTools);
+        yield* this.handleDirectResponse(responseText ?? '', ctx, recommendationIntent, toolResults, failedTools);
         return;
       }
 
       // Execute tools and add results to scratchpad (response is AIMessage here)
       for await (const event of this.toolExecutor.executeAll(response, ctx)) {
         yield event;
-        // Track tool successes and failures for recommendation evidence guard
-        if (event.type === 'tool_end') succeededTools.push(event.tool);
+        // Track tool results for recommendation evidence guard (中身ベース判定)
+        if (event.type === 'tool_end') toolResults.push({ tool: event.tool, result: event.result ?? '' });
         if (event.type === 'tool_error') failedTools.push(event.tool);
         if (event.type === 'tool_denied') {
           const totalTime = Date.now() - ctx.startTime;
@@ -244,21 +247,29 @@ export class Agent {
 
   /**
    * Emit the response text as the final answer.
-   * For time-sensitive recommendation queries, check that current data evidence exists.
+   * For time-sensitive recommendation queries:
+   * - 結果の中身ベースでevidence判定（ツール名だけでなく）
+   * - 有効な current data が不足していれば推薦をブロック
+   * - non-personalized なのに personalization 表現が混ざっていれば差し替え
    */
   private async *handleDirectResponse(
     responseText: string,
     ctx: RunContext,
     recommendationIntent?: RecommendationIntent,
-    succeededTools?: string[],
+    toolResults?: ToolCallResult[],
     failedTools?: string[],
   ): AsyncGenerator<AgentEvent, void> {
     let finalAnswer = responseText;
 
-    // Recommendation evidence guard: 時点依存の推薦クエリでcurrent dataが不足している場合はブロック
-    if (recommendationIntent?.isTimeSensitive && succeededTools && failedTools) {
-      const evidence = checkRecommendationEvidence(succeededTools, failedTools);
-      if (evidence.hasOnlyMemoryEvidence || (!evidence.hasCurrentDataEvidence && failedTools.length > 0)) {
+    if (recommendationIntent?.isTimeSensitive && toolResults && failedTools) {
+      const evidence = checkRecommendationEvidence(toolResults, failedTools);
+
+      // Evidence不足チェック: 有効なcurrent dataが2件未満
+      if (!evidence.hasSufficientEvidence) {
+        finalAnswer = buildEvidenceInsufficientResponse(evidence);
+      }
+      // Final answer guard: non-personalizedなのにpersonalization表現が混ざっている
+      else if (!recommendationIntent.isExplicitlyPersonalized && containsPersonalizationExpressions(finalAnswer)) {
         finalAnswer = buildEvidenceInsufficientResponse(evidence);
       }
     }
