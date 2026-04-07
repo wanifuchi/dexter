@@ -986,6 +986,47 @@
   let isProcessing = false;
   let pendingImage = null; // { base64: string, mimeType: string, name: string }
 
+  // --- ポートフォリオ Basic 認証 ---
+  let portfolioAuth = null; // "Basic base64" ヘッダー値（メモリ保持）
+
+  function getPortfolioAuth() {
+    if (portfolioAuth) return portfolioAuth;
+    // sessionStorageから復元（タブ閉じで消える）
+    const saved = sessionStorage.getItem('finx_pauth');
+    if (saved) { portfolioAuth = saved; return saved; }
+    return null;
+  }
+
+  function promptPortfolioAuth() {
+    const user = prompt('ポートフォリオ認証 — ユーザー名:');
+    if (!user) return false;
+    const pass = prompt('パスワード:');
+    if (!pass) return false;
+    portfolioAuth = 'Basic ' + btoa(user + ':' + pass);
+    sessionStorage.setItem('finx_pauth', portfolioAuth);
+    return true;
+  }
+
+  function portfolioFetch(url, options = {}) {
+    const auth = getPortfolioAuth();
+    if (!auth) return Promise.reject(new Error('認証が必要です'));
+    const headers = { ...(options.headers || {}), 'Authorization': auth };
+    return fetch(url, { ...options, headers });
+  }
+
+  async function portfolioFetchWithRetry(url, options = {}) {
+    let res = await portfolioFetch(url, options);
+    if (res.status === 401) {
+      // 認証失敗 → 再入力
+      portfolioAuth = null;
+      sessionStorage.removeItem('finx_pauth');
+      if (!promptPortfolioAuth()) throw new Error('認証がキャンセルされました');
+      res = await portfolioFetch(url, options);
+      if (res.status === 401) throw new Error('認証に失敗しました');
+    }
+    return res;
+  }
+
   function handleImageSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1418,7 +1459,7 @@
   // --- パフォーマンスチャート ---
   async function loadChart() {
     try {
-      const res = await fetch('/api/snapshots');
+      const res = await portfolioFetchWithRetry('/api/snapshots');
       const data = await res.json();
       renderChart(data.snapshots || [], data.sp500 || []);
     } catch {
@@ -1536,16 +1577,19 @@
     if (!ticker || !shares || !avgCost) { status.textContent = '銘柄・株数・取得単価は必須です'; return; }
     status.textContent = '追加中...';
     try {
-      const res = await fetch('/api/chat', {
+      const res = await portfolioFetchWithRetry('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: `ポートフォリオに${ticker}（${name || ticker}）を${shares}株、取得単価$${avgCost}、${account}で登録して`, sessionId: 'portfolio-edit' }),
+        body: JSON.stringify({ ticker, name: name || ticker, shares, avgCost, account }),
       });
-      status.textContent = `${ticker} を追加しました。ページをリロードして反映を確認してください。`;
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || '追加失敗');
+      status.textContent = `${ticker} を追加しました。`;
       document.getElementById('pe-ticker').value = '';
       document.getElementById('pe-name').value = '';
       document.getElementById('pe-shares').value = '';
       document.getElementById('pe-cost').value = '';
+      loadPortfolioPage();
     } catch (e) {
       status.textContent = 'エラー: ' + e.message;
     }
@@ -2299,7 +2343,7 @@
     input.disabled = true;
 
     try {
-      const res = await fetch('/api/portfolio', {
+      const res = await portfolioFetchWithRetry('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticker, account, shares: newShares }),
@@ -2560,12 +2604,20 @@
     loading.style.display = 'block';
     content.style.display = 'none';
 
+    // 初回アクセス時に認証を求める
+    if (!getPortfolioAuth()) {
+      if (!promptPortfolioAuth()) {
+        loading.textContent = 'ポートフォリオの閲覧には認証が必要です';
+        return;
+      }
+    }
+
     try {
       const [portfolioRes, dividendRes, watchlistRes, taxGoalsRes] = await Promise.all([
-        fetch('/api/portfolio'),
-        fetch('/api/dividends'),
-        fetch('/api/watchlist'),
-        fetch('/api/tax-goals'),
+        portfolioFetchWithRetry('/api/portfolio'),
+        portfolioFetchWithRetry('/api/dividends'),
+        portfolioFetchWithRetry('/api/watchlist'),
+        portfolioFetchWithRetry('/api/tax-goals'),
       ]);
       const data = await portfolioRes.json();
       if (data.error) throw new Error(data.error);
@@ -2661,7 +2713,7 @@
     if (!data.alerts || data.alerts.length === 0) {
       setTimeout(async () => {
         try {
-          const retry = await fetch('/api/portfolio');
+          const retry = await portfolioFetch('/api/portfolio');
           const retryData = await retry.json();
           if (retryData.alerts && retryData.alerts.length > 0) renderAlertRules(retryData.alerts);
         } catch {}
