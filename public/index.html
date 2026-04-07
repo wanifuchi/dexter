@@ -577,6 +577,35 @@
       font-size: 12px;
     }
     .alert-item .alert-cond { color: var(--text-muted); }
+    /* CSS Tooltip（title属性より高速表示） */
+    [data-tip] {
+      position: relative;
+      cursor: help;
+    }
+    [data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text);
+      color: var(--bg);
+      font-size: 11px;
+      line-height: 1.4;
+      padding: 5px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+      max-width: 280px;
+      white-space: normal;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      z-index: 100;
+    }
+    [data-tip]:hover::after {
+      opacity: 1;
+    }
+
     .portfolio-loading {
       text-align: center;
       color: var(--text-muted);
@@ -667,17 +696,17 @@
         <span id="dp-market-status" style="font-size:10px;padding:2px 6px;border-radius:3px;margin-left:4px"></span>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <span id="dp-updated" style="font-size:11px;color:var(--text-muted)" title="この一覧を最後に生成した時刻です。リアルタイム板ではありません。"></span>
-        <button onclick="loadDailyPicksPage(true)" title="この一覧を最後に生成した時刻です。リアルタイム板ではありません。" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">Refresh</button>
+        <span id="dp-updated" style="font-size:11px;color:var(--text-muted)" data-tip="この一覧を最後に生成した時刻です。リアルタイム板ではありません。"></span>
+        <button onclick="loadDailyPicksPage(true)" data-tip="キャッシュを無視して再スキャンします。" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">Refresh</button>
       </div>
     </div>
     <div style="background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.6">
       この一覧は、米国株の直近価格・出来高・直近24時間ニュースをもとに作成しています。<br>
       米国市場前の時間帯は、価格と騰落率が前営業日の通常市場ベースになる場合があります。<br>
-      <span title="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="border-bottom:1px dotted var(--text-muted);cursor:help">スコア</span>は、騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。
+      <span data-tip="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="border-bottom:1px dotted var(--text-muted)">スコア</span>は、騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-      <select id="dp-mode" onchange="loadDailyPicksPage()" title="通常モードです。価格下限と出来高条件を満たす銘柄のみ表示します。" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
+      <select id="dp-mode" onchange="loadDailyPicksPage()" data-tip="通常モードは価格下限・出来高条件あり。ペニー含むは低位株も対象。" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
         <option value="standard">標準</option>
         <option value="penny">ペニー含む</option>
       </select>
@@ -1768,7 +1797,7 @@
             <div>
               <span style="font-weight:700;font-size:15px;cursor:pointer" onclick="analyzeStock('${pick.ticker}')">${escapeHtml(pick.ticker)}</span>
               <span style="color:var(--text-muted);font-size:12px;margin-left:6px">${escapeHtml(pick.name)}</span>
-              <span title="米国株を示します。" style="font-size:10px;background:var(--bg-secondary);border-radius:3px;padding:1px 4px;margin-left:4px;cursor:help">${pick.market}</span>
+              <span data-tip="米国株を示します。" style="font-size:10px;background:var(--bg-secondary);border-radius:3px;padding:1px 4px;margin-left:4px">${pick.market}</span>
             </div>
             <div style="text-align:right">
               <div style="font-weight:600">$${pick.price.toFixed(2)}</div>
@@ -1777,11 +1806,11 @@
           </div>
           <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
             ${escapeHtml(pick.summary)}
-            ${pick.catalysts && pick.catalysts.length > 0 ? ` <span title="直近24時間で確認できたニュース・材料の件数です。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">材料${pick.catalysts.length}件</span>` : ''}
+            ${pick.catalysts && pick.catalysts.length > 0 ? ` <span data-tip="直近24時間で確認できたニュース・材料の件数です。" style="border-bottom:1px dotted var(--text-muted)">材料${pick.catalysts.length}件</span>` : ''}
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted)">
-            <span title="直近の通常市場ベースの出来高です。資金流入の強さを見る参考値です。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">出来高: ${pick.volume > 1000000 ? (pick.volume/1000000).toFixed(1)+'M' : (pick.volume/1000).toFixed(0)+'K'}</span>
-            <span title="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">スコア: ${pick.score}</span>
+            <span data-tip="直近の通常市場ベースの出来高です。資金流入の強さを見る参考値です。" style="border-bottom:1px dotted var(--text-muted)">出来高: ${pick.volume > 1000000 ? (pick.volume/1000000).toFixed(1)+'M' : (pick.volume/1000).toFixed(0)+'K'}</span>
+            <span data-tip="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="border-bottom:1px dotted var(--text-muted)">スコア: ${pick.score}</span>
           </div>
           ${newsLinks ? '<div style="margin-top:8px;border-top:1px solid var(--border-light);padding-top:6px">' + newsLinks + '</div>' : ''}
         </div>`;
