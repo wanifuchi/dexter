@@ -616,6 +616,7 @@
     <button class="nav-btn" onclick="showPage('portfolio')" id="nav-portfolio">ポートフォリオ</button>
     <button class="nav-btn" onclick="showPage('backtest')" id="nav-backtest">バックテスト</button>
     <button class="nav-btn" onclick="showPage('paper')" id="nav-paper">ペーパー</button>
+    <button class="nav-btn" onclick="showPage('daily-picks')" id="nav-daily-picks">注目銘柄</button>
     <button type="button" class="nav-btn" onclick="toggleTheme()" id="theme-toggle" title="ダークモード切替">🌙</button>
     <span class="status-text" id="model-name"></span>
   </div>
@@ -653,6 +654,33 @@
           <path d="M5 12h14M12 5l7 7-7 7"/>
         </svg>
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- 本日の注目銘柄ページ -->
+<div class="page" id="daily-picks-page" style="overflow-y:auto;padding:20px">
+  <div style="max-width:760px;margin:0 auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px;font-weight:700">本日の注目銘柄</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="dp-updated" style="font-size:11px;color:var(--text-muted)"></span>
+        <button onclick="loadDailyPicksPage(true)" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">Refresh</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <select id="dp-market" onchange="loadDailyPicksPage()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
+        <option value="us">US</option>
+        <option value="jp">JP</option>
+        <option value="both">両方</option>
+      </select>
+      <select id="dp-mode" onchange="loadDailyPicksPage()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
+        <option value="standard">標準</option>
+        <option value="penny">ペニー含む</option>
+      </select>
+    </div>
+    <div id="dp-content">
+      <div style="text-align:center;color:var(--text-muted);padding:40px 0">タブを選択してスキャンを開始</div>
     </div>
   </div>
 </div>
@@ -1081,6 +1109,7 @@
     if (page === 'portfolio') loadPortfolioPage();
     if (page === 'backtest') initBacktestPage();
     if (page === 'paper') loadPaperPage();
+    if (page === 'daily-picks') loadDailyPicksPage();
   }
 
   // テキストエリア自動リサイズ
@@ -1674,6 +1703,67 @@
     messagesEl.appendChild(welcome);
     messagesEl.scrollTop = 0;
     inputEl.focus();
+  }
+
+  // --- 本日の注目銘柄 ---
+  async function loadDailyPicksPage(forceRefresh) {
+    const content = document.getElementById('dp-content');
+    const updated = document.getElementById('dp-updated');
+    const market = document.getElementById('dp-market').value;
+    const mode = document.getElementById('dp-mode').value;
+
+    content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">スキャン中...</div>';
+
+    try {
+      const refresh = forceRefresh ? '&refresh=1' : '';
+      const res = await fetch(`/api/daily-picks?market=${market}&mode=${mode}${refresh}`);
+      const data = await res.json();
+
+      if (data.generatedAt) {
+        const d = new Date(data.generatedAt);
+        updated.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} 更新`;
+      }
+
+      if (data.status === 'insufficient_data' || data.picks.length === 0) {
+        content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">本日は、具体銘柄を出せる水準の最新データが揃わなかったため見送りです。</div>';
+        return;
+      }
+
+      if (data.status === 'error') {
+        content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">データの取得に失敗しました。</div>';
+        return;
+      }
+
+      content.innerHTML = data.picks.map(pick => {
+        const changeColor = pick.changePct >= 0 ? 'var(--green)' : 'var(--red)';
+        const changeSign = pick.changePct >= 0 ? '+' : '';
+        const newsLinks = (pick.catalysts || []).slice(0, 3).map(c =>
+          `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:11px;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.title)}</a>`
+        ).join('');
+
+        return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div>
+              <span style="font-weight:700;font-size:15px;cursor:pointer" onclick="analyzeStock('${pick.ticker}')">${escapeHtml(pick.ticker)}</span>
+              <span style="color:var(--text-muted);font-size:12px;margin-left:6px">${escapeHtml(pick.name)}</span>
+              <span style="font-size:10px;background:var(--bg-secondary);border-radius:3px;padding:1px 4px;margin-left:4px">${pick.market}</span>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:600">$${pick.price.toFixed(2)}</div>
+              <div style="color:${changeColor};font-size:12px">${changeSign}${pick.changePct.toFixed(2)}%</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">${escapeHtml(pick.summary)}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted)">
+            <span>出来高: ${pick.volume > 1000000 ? (pick.volume/1000000).toFixed(1)+'M' : (pick.volume/1000).toFixed(0)+'K'}</span>
+            <span>スコア: ${pick.score}</span>
+          </div>
+          ${newsLinks ? '<div style="margin-top:8px;border-top:1px solid var(--border-light);padding-top:6px">' + newsLinks + '</div>' : ''}
+        </div>`;
+      }).join('');
+    } catch (e) {
+      content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">データの取得に失敗しました。</div>';
+    }
   }
 
   function analyzeStock(ticker) {
