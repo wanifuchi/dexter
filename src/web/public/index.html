@@ -662,14 +662,22 @@
 <div class="page" id="daily-picks-page" style="overflow-y:auto;padding:20px">
   <div style="max-width:760px;margin:0 auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="font-size:18px;font-weight:700">本日の米国株注目銘柄</h2>
+      <div>
+        <h2 style="font-size:18px;font-weight:700">本日の米国株注目銘柄</h2>
+        <span id="dp-market-status" style="font-size:10px;padding:2px 6px;border-radius:3px;margin-left:4px"></span>
+      </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <span id="dp-updated" style="font-size:11px;color:var(--text-muted)"></span>
-        <button onclick="loadDailyPicksPage(true)" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">Refresh</button>
+        <span id="dp-updated" style="font-size:11px;color:var(--text-muted)" title="この一覧を最後に生成した時刻です。リアルタイム板ではありません。"></span>
+        <button onclick="loadDailyPicksPage(true)" title="この一覧を最後に生成した時刻です。リアルタイム板ではありません。" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">Refresh</button>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-      <select id="dp-mode" onchange="loadDailyPicksPage()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
+    <div style="background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.6">
+      この一覧は、米国株の直近価格・出来高・直近24時間ニュースをもとに作成しています。<br>
+      米国市場前の時間帯は、価格と騰落率が前営業日の通常市場ベースになる場合があります。<br>
+      <span title="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="border-bottom:1px dotted var(--text-muted);cursor:help">スコア</span>は、騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <select id="dp-mode" onchange="loadDailyPicksPage()" title="通常モードです。価格下限と出来高条件を満たす銘柄のみ表示します。" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-input);color:var(--text);font-size:12px">
         <option value="standard">標準</option>
         <option value="penny">ペニー含む</option>
       </select>
@@ -1718,6 +1726,26 @@
         updated.textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} 更新`;
       }
 
+      // 米国市場ステータスバッジ（ET基準: 9:30-16:00が取引時間）
+      const statusEl = document.getElementById('dp-market-status');
+      const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const h = nowET.getHours(), m = nowET.getMinutes(), day = nowET.getDay();
+      const isWeekend = day === 0 || day === 6;
+      const mins = h * 60 + m;
+      if (isWeekend) {
+        statusEl.textContent = '週末・休場';
+        statusEl.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:3px;background:#6b7280;color:#fff';
+      } else if (mins < 570) {
+        statusEl.textContent = '市場前';
+        statusEl.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:3px;background:#f59e0b;color:#fff';
+      } else if (mins <= 960) {
+        statusEl.textContent = '取引時間中';
+        statusEl.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:3px;background:#10b981;color:#fff';
+      } else {
+        statusEl.textContent = '取引後';
+        statusEl.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:3px;background:#6b7280;color:#fff';
+      }
+
       if (data.status === 'insufficient_data' || data.picks.length === 0) {
         content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">本日は、具体銘柄を出せる水準の最新データが揃わなかったため見送りです。</div>';
         return;
@@ -1740,17 +1768,20 @@
             <div>
               <span style="font-weight:700;font-size:15px;cursor:pointer" onclick="analyzeStock('${pick.ticker}')">${escapeHtml(pick.ticker)}</span>
               <span style="color:var(--text-muted);font-size:12px;margin-left:6px">${escapeHtml(pick.name)}</span>
-              <span style="font-size:10px;background:var(--bg-secondary);border-radius:3px;padding:1px 4px;margin-left:4px">${pick.market}</span>
+              <span title="米国株を示します。" style="font-size:10px;background:var(--bg-secondary);border-radius:3px;padding:1px 4px;margin-left:4px;cursor:help">${pick.market}</span>
             </div>
             <div style="text-align:right">
               <div style="font-weight:600">$${pick.price.toFixed(2)}</div>
               <div style="color:${changeColor};font-size:12px">${changeSign}${pick.changePct.toFixed(2)}%</div>
             </div>
           </div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">${escapeHtml(pick.summary)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+            ${escapeHtml(pick.summary)}
+            ${pick.catalysts && pick.catalysts.length > 0 ? ` <span title="直近24時間で確認できたニュース・材料の件数です。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">材料${pick.catalysts.length}件</span>` : ''}
+          </div>
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted)">
-            <span>出来高: ${pick.volume > 1000000 ? (pick.volume/1000000).toFixed(1)+'M' : (pick.volume/1000).toFixed(0)+'K'}</span>
-            <span>スコア: ${pick.score}</span>
+            <span title="直近の通常市場ベースの出来高です。資金流入の強さを見る参考値です。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">出来高: ${pick.volume > 1000000 ? (pick.volume/1000000).toFixed(1)+'M' : (pick.volume/1000).toFixed(0)+'K'}</span>
+            <span title="騰落率・出来高・ニュース件数・流動性をもとに付けた当日ランキング用の相対スコアです。" style="cursor:help;border-bottom:1px dotted var(--text-muted)">スコア: ${pick.score}</span>
           </div>
           ${newsLinks ? '<div style="margin-top:8px;border-top:1px solid var(--border-light);padding-top:6px">' + newsLinks + '</div>' : ''}
         </div>`;
