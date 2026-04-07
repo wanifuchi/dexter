@@ -1,4 +1,4 @@
-import { passesEvidenceGate, scorePick } from '../daily-picks.js';
+import { passesEvidenceGate, scorePick, generateDailyPicks } from '../daily-picks.js';
 import type { EvidencedCandidate } from '../daily-picks.js';
 
 function makeCandidate(overrides: Partial<EvidencedCandidate> = {}): EvidencedCandidate {
@@ -96,5 +96,29 @@ describe('Evidence不足時', () => {
     });
     expect(passesEvidenceGate(noNews, 'standard')).toBe(false);
     expect(passesEvidenceGate(noPrice, 'standard')).toBe(false);
+  });
+});
+
+describe('FINNHUB_API_KEY未設定', () => {
+  const originalKey = process.env.FINNHUB_API_KEY;
+
+  beforeEach(() => { delete process.env.FINNHUB_API_KEY; });
+  afterEach(() => { if (originalKey) process.env.FINNHUB_API_KEY = originalKey; });
+
+  it('API_KEY未設定時は insufficient_data を返し picks は空', async () => {
+    const result = await generateDailyPicks({ market: 'us', mode: 'standard' });
+    expect(result.status).toBe('insufficient_data');
+    expect(result.picks).toEqual([]);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe('US専用MVP', () => {
+  it('market は常に us として動作する', async () => {
+    const original = process.env.FINNHUB_API_KEY;
+    delete process.env.FINNHUB_API_KEY;
+    const result = await generateDailyPicks({ market: 'jp', mode: 'standard' });
+    expect(result.market).toBe('us');
+    if (original) process.env.FINNHUB_API_KEY = original;
   });
 });

@@ -6,7 +6,7 @@ import { generateDailyPicks } from '../services/daily-picks.js';
 import type { DailyPicksMarket, DailyPicksMode } from '../services/daily-picks-types.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const market = (req.query.market as string || 'us') as DailyPicksMarket;
+  const market = 'us' as DailyPicksMarket; // US専用MVP
   const mode = (req.query.mode as string || 'standard') as DailyPicksMode;
   const refresh = req.query.refresh === '1';
 

@@ -219,7 +219,19 @@ function buildSummary(candidate: EvidencedCandidate): string {
 // === メインパイプライン ===
 
 export async function generateDailyPicks(req: DailyPicksRequest): Promise<DailyPicksResponse> {
-  const { market, mode, refresh } = req;
+  const market = 'us' as const; // US専用MVP
+  const { mode, refresh } = req;
+
+  // FINNHUB_API_KEY未設定チェック
+  if (!process.env.FINNHUB_API_KEY) {
+    return {
+      generatedAt: new Date().toISOString(),
+      market, mode,
+      status: 'insufficient_data',
+      picks: [],
+      warnings: ['FINNHUB_API_KEY is not configured. Cannot fetch market data.'],
+    };
+  }
 
   // キャッシュチェック
   if (!refresh) {
@@ -229,15 +241,8 @@ export async function generateDailyPicks(req: DailyPicksRequest): Promise<DailyP
 
   const warnings: string[] = [];
 
-  // Step 1: 候補抽出
-  let candidates: CandidateTicker[] = [];
-  if (market === 'us' || market === 'both') {
-    candidates = await fetchYahooGainers(20);
-  }
-  // JP は Phase 2 で実装
-  if (market === 'jp') {
-    warnings.push('日本株の候補抽出は現在準備中です。');
-  }
+  // Step 1: 候補抽出（US専用）
+  const candidates = await fetchYahooGainers(20);
 
   if (candidates.length === 0) {
     const response: DailyPicksResponse = {
