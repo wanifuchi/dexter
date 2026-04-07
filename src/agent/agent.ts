@@ -65,7 +65,12 @@ export class Agent {
    */
   static async create(config: AgentConfig = {}): Promise<Agent> {
     const model = config.model ?? DEFAULT_MODEL;
-    const tools = getTools(model);
+    let tools = getTools(model);
+
+    // blockedToolsが指定されている場合、該当ツールを除外
+    if (config.blockedTools && config.blockedTools.size > 0) {
+      tools = tools.filter(t => !config.blockedTools!.has(t.name));
+    }
     const soulContent = await loadSoulDocument();
     let memoryFiles: string[] = [];
     let memoryContext: string | null = null;

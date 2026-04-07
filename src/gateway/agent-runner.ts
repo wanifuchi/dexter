@@ -10,6 +10,7 @@ import {
   restoreSessionFromThreads,
 } from '../conversation/index.js';
 import type { ConversationTurn } from '../conversation/types.js';
+import { classifyRecommendationIntent, shouldBlockMemory } from '../agent/recommendation-guard.js';
 
 type SessionState = {
   history: InMemoryChatHistory;
@@ -92,6 +93,13 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
     // ThreadStoreからrecentTurnsを取得（agent prompt context用）
     const threadTurns = await getThreadRecentTurns(req.sessionKey, 6);
 
+    // Recommendation intent判定: time-sensitive + non-personalized ならmemory系ツールをブロック
+    const rawQuery = req.rawUserMessage ?? req.query;
+    const recIntent = classifyRecommendationIntent(rawQuery);
+    const blockedTools = shouldBlockMemory(recIntent)
+      ? new Set(['memory_search', 'memory_get', 'learning_engine'])
+      : undefined;
+
     const agent = await Agent.create({
       model: req.model,
       modelProvider: req.modelProvider,
@@ -100,6 +108,7 @@ export async function runAgentForMessage(req: AgentRunRequest): Promise<string> 
       channel: req.channel,
       groupContext: req.groupContext,
       memoryEnabled: !isolated,
+      blockedTools,
     });
     for await (const event of agent.run(req.query, session?.history, req.image, threadTurns)) {
       await req.onEvent?.(event);

@@ -55,6 +55,8 @@ export interface AgentConfig {
   sessionApprovedTools?: Set<string>;
   /** Enable/disable persistent memory integration for this run */
   memoryEnabled?: boolean;
+  /** Tool names to exclude from this run (e.g. memory_search for time-sensitive recommendations) */
+  blockedTools?: Set<string>;
 }
 
 /**

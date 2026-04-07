@@ -90,10 +90,13 @@ You have persistent memory stored as Markdown files in .dexter/memory/.${fileLis
 Use memory_search to recall stored facts, preferences, or notes. The search covers all
 memory files (long-term and daily logs) AND past conversation transcripts.
 
-**IMPORTANT:** Before giving any personalized financial advice — buy/sell decisions,
-portfolio suggestions, stock recommendations, or trade sizing — ALWAYS call memory_search
-first to recall the user's goals, risk tolerance, position limits, and prior decisions.
-The user expects you to know them. Do not give generic advice when personalized context exists.
+**IMPORTANT:** Before giving PERSONALIZED financial advice — buy/sell decisions on the user's
+existing portfolio, position sizing, or risk assessment — call memory_search first to recall
+the user's goals, risk tolerance, position limits, and prior decisions.
+
+**EXCEPTION:** For TIME-SENSITIVE STOCK RECOMMENDATIONS (e.g. "今日のおすすめ", "今買うべき株",
+"latest picks"), do NOT call memory_search. These must be based purely on current market data.
+memory_search tools may be blocked by the system for such queries.
 
 Follow up with memory_get to read full sections when you need exact text.
 
