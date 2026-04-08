@@ -644,6 +644,7 @@
     <button class="nav-btn" onclick="showPage('backtest')" id="nav-backtest">バックテスト</button>
     <button class="nav-btn" onclick="showPage('paper')" id="nav-paper">ペーパー</button>
     <button class="nav-btn" onclick="showPage('daily-picks')" id="nav-daily-picks">米国株注目銘柄</button>
+    <button class="nav-btn" onclick="showPage('profit-check')" id="nav-profit-check">利確判定</button>
     <button type="button" class="nav-btn" onclick="toggleTheme()" id="theme-toggle" title="ダークモード切替">🌙</button>
     <span class="status-text" id="model-name"></span>
   </div>
@@ -711,6 +712,23 @@
     </div>
     <div id="dp-content">
       <div style="text-align:center;color:var(--text-muted);padding:40px 0">タブを選択してスキャンを開始</div>
+    </div>
+  </div>
+</div>
+
+<!-- 利確判定ページ -->
+<div class="page" id="profit-check-page" style="overflow-y:auto;padding:20px">
+  <div style="max-width:760px;margin:0 auto">
+    <div style="margin-bottom:16px">
+      <h2 style="font-size:18px;font-weight:700">利確判定</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:4px">設計で利確する。感情ではなく、4つの問いで決める。</p>
+    </div>
+    <div style="background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:var(--text-muted);line-height:1.6">
+      この判定は <strong>rumaトレード理論</strong> の利確4原則に基づきます。<br>
+      ① 利確に正解はない / ② 逆ポジ質問 / ③ 50/50決済 / ④ 前提固定利確
+    </div>
+    <div id="pc-content">
+      <div style="text-align:center;color:var(--text-muted);padding:40px 0">読み込み中...</div>
     </div>
   </div>
 </div>
@@ -1140,6 +1158,7 @@
     if (page === 'backtest') initBacktestPage();
     if (page === 'paper') loadPaperPage();
     if (page === 'daily-picks') loadDailyPicksPage();
+    if (page === 'profit-check') loadProfitCheckPage();
   }
 
   // テキストエリア自動リサイズ
@@ -1816,6 +1835,403 @@
     } catch (e) {
       content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">データの取得に失敗しました。</div>';
     }
+  }
+
+  // ============================================================
+  // 利確判定（rumaトレード理論ベース）
+  // ============================================================
+
+  let pcState = {
+    step: 'select',          // select | summary | q1 | q2 | q3 | q4 | result
+    ticker: null,
+    name: null,
+    account: null,
+    shares: 0,
+    avgCost: 0,
+    currentPrice: 0,
+    pnl: 0,
+    pnlPct: 0,
+    answers: {
+      strategy: null,        // 'trend' | 'range'
+      thesisIntact: null,    // 'yes' | 'no' | 'unsure'
+      reverseEntry: null,    // 'yes' | 'no'
+      atTarget: null,        // 'yes' | 'no' | 'no-target'
+    },
+  };
+
+  async function loadProfitCheckPage() {
+    pcState = { ...pcState, step: 'select', ticker: null, answers: { strategy: null, thesisIntact: null, reverseEntry: null, atTarget: null } };
+    renderProfitCheck();
+  }
+
+  function renderProfitCheck() {
+    const content = document.getElementById('pc-content');
+    if (pcState.step === 'select') return renderPcSelect(content);
+    if (pcState.step === 'summary') return renderPcSummary(content);
+    if (pcState.step === 'q1') return renderPcQ1(content);
+    if (pcState.step === 'q2') return renderPcQ2(content);
+    if (pcState.step === 'q3') return renderPcQ3(content);
+    if (pcState.step === 'q4') return renderPcQ4(content);
+    if (pcState.step === 'result') return renderPcResult(content);
+  }
+
+  async function renderPcSelect(content) {
+    content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">保有銘柄を読み込み中...</div>';
+
+    // 認証確認
+    if (!getPortfolioAuth()) {
+      if (!promptPortfolioAuth()) {
+        content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">利確判定にはポートフォリオ認証が必要です</div>';
+        return;
+      }
+    }
+
+    try {
+      const res = await portfolioFetchWithRetry('/api/portfolio');
+      const data = await res.json();
+      const positions = data.positions || [];
+
+      if (positions.length === 0) {
+        content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">保有銘柄がありません</div>';
+        return;
+      }
+
+      // 含み益順でソート
+      const sorted = [...positions].sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+
+      content.innerHTML = `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">利確判定する銘柄を選択</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${sorted.map(p => {
+              const pnlPct = p.avgCost > 0 ? ((p.currentPrice - p.avgCost) / p.avgCost) * 100 : 0;
+              const pnlColor = pnlPct >= 0 ? 'var(--green)' : 'var(--red)';
+              const sign = pnlPct >= 0 ? '+' : '';
+              return `<div onclick="pcSelectTicker('${escapeHtml(p.ticker)}','${escapeHtml(p.account || '')}')" style="cursor:pointer;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:6px;display:flex;justify-content:space-between;align-items:center;transition:background 0.1s" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background='var(--bg-secondary)'">
+                <div>
+                  <div style="font-weight:600;font-size:14px">${escapeHtml(p.ticker)}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${escapeHtml(p.account || '')} · ${p.shares}株</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:13px">$${(p.currentPrice || 0).toFixed(2)}</div>
+                  <div style="font-size:12px;color:${pnlColor}">${sign}${pnlPct.toFixed(2)}%</div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">ポートフォリオの読み込みに失敗しました</div>';
+    }
+  }
+
+  async function pcSelectTicker(ticker, account) {
+    pcState.step = 'summary';
+    pcState.ticker = ticker;
+    pcState.account = account;
+
+    const content = document.getElementById('pc-content');
+    content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">銘柄情報を取得中...</div>';
+
+    try {
+      const res = await portfolioFetchWithRetry('/api/portfolio');
+      const data = await res.json();
+      const pos = (data.positions || []).find(p => p.ticker === ticker && (p.account || '') === account);
+      if (!pos) throw new Error('銘柄が見つかりません');
+
+      pcState.name = pos.name || ticker;
+      pcState.shares = pos.shares || 0;
+      pcState.avgCost = pos.avgCost || 0;
+      pcState.currentPrice = pos.currentPrice || 0;
+      pcState.pnl = (pcState.currentPrice - pcState.avgCost) * pcState.shares;
+      pcState.pnlPct = pcState.avgCost > 0 ? ((pcState.currentPrice - pcState.avgCost) / pcState.avgCost) * 100 : 0;
+
+      renderProfitCheck();
+    } catch (e) {
+      const content = document.getElementById('pc-content');
+      content.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px 0">銘柄情報の取得に失敗しました</div>';
+    }
+  }
+
+  function renderPcSummary(content) {
+    const pnlColor = pcState.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const sign = pcState.pnl >= 0 ? '+' : '';
+    content.innerHTML = `
+      ${pcBackButton('select')}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escapeHtml(pcState.ticker)}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${escapeHtml(pcState.name)} · ${escapeHtml(pcState.account)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
+          <div><span style="color:var(--text-muted)">保有株数</span><br><span style="font-weight:600">${pcState.shares.toLocaleString()}株</span></div>
+          <div><span style="color:var(--text-muted)">取得単価</span><br><span style="font-weight:600">$${pcState.avgCost.toFixed(2)}</span></div>
+          <div><span style="color:var(--text-muted)">現在値</span><br><span style="font-weight:600">$${pcState.currentPrice.toFixed(2)}</span></div>
+          <div><span style="color:var(--text-muted)">含み損益</span><br><span style="font-weight:600;color:${pnlColor}">${sign}$${Math.abs(pcState.pnl).toFixed(2)} (${sign}${pcState.pnlPct.toFixed(2)}%)</span></div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <button onclick="pcGoStep('q1')" style="padding:10px 32px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">利確判定を開始</button>
+      </div>
+    `;
+  }
+
+  function renderPcQ1(content) {
+    content.innerHTML = `
+      ${pcStepHeader(1, 'エントリー時の前提を確認')}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">この${escapeHtml(pcState.ticker)}は、もともとどちらの戦略で買いましたか?</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">前提を固定しないと、利確判断がブレます。</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button onclick="pcAnswer('strategy','trend')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">📈 トレンド狙い</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">高値更新を狙う。直近高値より手前で利確しない</div>
+          </button>
+          <button onclick="pcAnswer('strategy','range')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">📊 レンジ狙い</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">レンジ内のほどほどで手堅く利確する</div>
+          </button>
+          <button onclick="pcAnswer('strategy','unclear')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">❓ 決めていなかった</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">前提なし — まずここを決めるのが先決</div>
+          </button>
+        </div>
+      </div>
+      ${pcBackButton('summary')}
+    `;
+  }
+
+  function renderPcQ2(content) {
+    const stratLabel = pcState.answers.strategy === 'trend' ? 'トレンド狙い' : pcState.answers.strategy === 'range' ? 'レンジ狙い' : '前提なし';
+    content.innerHTML = `
+      ${pcStepHeader(2, '保有根拠は崩れていない?')}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">エントリー時のシナリオ（${stratLabel}）はまだ生きていますか?</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">急落・トレンド転換・材料変化があれば、シナリオは崩れています。</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button onclick="pcAnswer('thesisIntact','yes')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">✅ シナリオは生きている</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">想定通りに動いている</div>
+          </button>
+          <button onclick="pcAnswer('thesisIntact','no')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">❌ シナリオは崩れた</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">前提が変わった・想定外の動き</div>
+          </button>
+          <button onclick="pcAnswer('thesisIntact','unsure')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">🤔 判断できない</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">微妙・グレー</div>
+          </button>
+        </div>
+      </div>
+      ${pcBackButton('q1')}
+    `;
+  }
+
+  function renderPcQ3(content) {
+    content.innerHTML = `
+      ${pcStepHeader(3, '逆ポジ質問')}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">今ここで、逆方向（売り）にエントリーできる根拠がありますか?</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">「もし新規でポジションを取るなら売る」と言える状態かを問う質問です。<br>感情ではなく、根拠で判断してください。</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button onclick="pcAnswer('reverseEntry','yes')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">✅ ある</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">今なら売りで入れる根拠がある → 利確OK</div>
+          </button>
+          <button onclick="pcAnswer('reverseEntry','no')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">❌ ない</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">売りで入る根拠はない → 保有継続が筋</div>
+          </button>
+        </div>
+      </div>
+      ${pcBackButton('q2')}
+    `;
+  }
+
+  function renderPcQ4(content) {
+    content.innerHTML = `
+      ${pcStepHeader(4, '事前に決めた利確ライン')}
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">エントリー時に決めた利確ライン（$${pcState.currentPrice.toFixed(2)}付近）に到達していますか?</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">事前に決めた場所で利確できれば「正解」です。神利確を狙わない。</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button onclick="pcAnswer('atTarget','yes')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">✅ 到達した</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">事前に決めた利確ラインに来ている</div>
+          </button>
+          <button onclick="pcAnswer('atTarget','no')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">❌ まだ到達していない</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">利確ラインの手前</div>
+          </button>
+          <button onclick="pcAnswer('atTarget','no-target')" style="${pcOptionStyle()}">
+            <div style="font-weight:600">⚠️ 利確ラインを決めていない</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">そもそも目標を決めていなかった</div>
+          </button>
+        </div>
+      </div>
+      ${pcBackButton('q3')}
+    `;
+  }
+
+  function renderPcResult(content) {
+    const decision = pcDecide();
+    content.innerHTML = `
+      <div style="background:var(--bg-card);border:2px solid ${decision.color};border-radius:8px;padding:20px;margin-bottom:16px">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${escapeHtml(pcState.ticker)} · ${pcState.shares}株</div>
+        <div style="font-size:24px;font-weight:700;color:${decision.color};margin-bottom:12px">${decision.icon} ${decision.label}</div>
+        <div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:14px">${decision.reason}</div>
+        ${decision.action ? `<div style="background:var(--bg-secondary);border-radius:6px;padding:10px 14px;font-size:12px;line-height:1.5"><strong>具体アクション:</strong><br>${decision.action}</div>` : ''}
+      </div>
+      <div style="background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:11px;color:var(--text-muted);line-height:1.6">
+        <strong>あなたの回答:</strong><br>
+        ① 戦略: ${pcAnswerLabel('strategy')}<br>
+        ② シナリオ: ${pcAnswerLabel('thesisIntact')}<br>
+        ③ 逆ポジ可能?: ${pcAnswerLabel('reverseEntry')}<br>
+        ④ 利確ライン到達?: ${pcAnswerLabel('atTarget')}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="loadProfitCheckPage()" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">別の銘柄を判定</button>
+        <button onclick="pcGoStep('q1')" style="flex:1;padding:10px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer">同じ銘柄で再判定</button>
+      </div>
+    `;
+  }
+
+  // === 判定ロジック（rumaトレード理論ベース） ===
+  function pcDecide() {
+    const a = pcState.answers;
+
+    // ケース1: シナリオ崩壊 → 全部利確（撤退）
+    if (a.thesisIntact === 'no') {
+      return {
+        label: '全部利確（撤退）',
+        icon: '🚪',
+        color: 'var(--red)',
+        reason: 'エントリー時のシナリオが崩れています。前提が崩壊した時点で、含み益の有無に関わらず撤退するのが正解です。「想定外の動きが起きたら降りる」は設計の基本。',
+        action: `${pcState.shares}株すべてを成行または近めの指値で決済する。`,
+      };
+    }
+
+    // ケース2: 逆ポジ可能 + 戦略一致 → 全部利確
+    if (a.reverseEntry === 'yes' && a.atTarget === 'yes') {
+      return {
+        label: '全部利確',
+        icon: '✅',
+        color: 'var(--green)',
+        reason: '逆ポジ質問にYES、かつ事前に決めた利確ラインに到達しています。これは設計通りの「正解の利確」です。神利確を狙わず、ここで降りるのが上手いトレードです。',
+        action: `${pcState.shares}株を成行または現値付近で決済。事前に決めた場所で降りられたことを評価する。`,
+      };
+    }
+
+    // ケース3: 逆ポジ可能 + ターゲット未到達 → 半分利確（50/50決済）
+    if (a.reverseEntry === 'yes' && a.atTarget === 'no') {
+      return {
+        label: '半分利確（50/50決済）',
+        icon: '⚖️',
+        color: '#f59e0b',
+        reason: '逆ポジ質問にYES（売りで入れる根拠あり）だが、事前の利確ラインには未到達。感情と理屈が割れているケースです。50/50決済で半分利確し、残り半分を理屈に預けましょう。',
+        action: `${Math.floor(pcState.shares / 2)}株を利確、残り${pcState.shares - Math.floor(pcState.shares / 2)}株を保有継続。`,
+      };
+    }
+
+    // ケース4: 逆ポジ不可 + ターゲット到達 → 半分利確 or 保有
+    if (a.reverseEntry === 'no' && a.atTarget === 'yes') {
+      if (a.strategy === 'trend') {
+        return {
+          label: '保有継続（トレンド狙い）',
+          icon: '📈',
+          color: 'var(--green)',
+          reason: 'トレンド狙い + 逆方向に入る根拠なし。事前ラインに来ていても、トレンドが生きているなら直近高値更新まで取りに行くのが筋。「もったいない利確」を避けるべきケース。',
+          action: '保有継続。利確ラインを次の節目に引き上げる（トレーリングストップを検討）。',
+        };
+      }
+      return {
+        label: '全部利確',
+        icon: '✅',
+        color: 'var(--green)',
+        reason: 'レンジ狙い + 利確ラインに到達。レンジ内では「ほどほどで手堅く」が正解です。高値超えを期待して粘るのはただの願望。',
+        action: `${pcState.shares}株を決済する。`,
+      };
+    }
+
+    // ケース5: 逆ポジ不可 + ターゲット未到達 → 保有継続
+    if (a.reverseEntry === 'no' && a.atTarget === 'no') {
+      return {
+        label: '保有継続',
+        icon: '🤝',
+        color: 'var(--green)',
+        reason: '売りで入る根拠もなく、事前の利確ラインにも未到達。今利確したくなっているのは「不安が1.8倍に肥大化」している状態です。根拠で入ったなら根拠で降りる。感情で降りない。',
+        action: '保有継続。次に投げる質問は「シナリオが崩れる条件」を再確認すること。',
+      };
+    }
+
+    // ケース6: 利確ライン未設定
+    if (a.atTarget === 'no-target') {
+      return {
+        label: '半分利確 + 設計やり直し',
+        icon: '⚠️',
+        color: '#f59e0b',
+        reason: '事前に利確ラインを決めていなかったケース。「設計なき保有」は感情で動く原因です。半分だけ利確して落ち着き、残り半分のための利確ラインを今すぐ決めてください。',
+        action: `${Math.floor(pcState.shares / 2)}株を利確。残り${pcState.shares - Math.floor(pcState.shares / 2)}株について、トレンド狙いなら直近高値、レンジ狙いならレンジ上限を利確ラインに設定する。`,
+      };
+    }
+
+    // ケース7: 戦略未決定
+    if (a.strategy === 'unclear') {
+      return {
+        label: '一旦半分利確 + 戦略確定',
+        icon: '⚠️',
+        color: '#f59e0b',
+        reason: '戦略を決めずに保有していたケース。利確判断がブレる根本原因です。まず半分利確してリスクを下げ、残り半分について「トレンド狙いか、レンジ狙いか」を今この瞬間に決めてください。',
+        action: `${Math.floor(pcState.shares / 2)}株を利確。残りについて戦略を確定し、利確ラインを設定する。`,
+      };
+    }
+
+    // ケース8: シナリオ判断不能
+    return {
+      label: '判断保留 + 情報追加',
+      icon: '🤔',
+      color: '#6b7280',
+      reason: 'シナリオの状態が判断できないケース。今は決断のタイミングではありません。チャート・直近ニュース・出来高を見直してから再判定してください。',
+      action: 'チャットでこの銘柄を分析してから、もう一度この判定を行う。',
+    };
+  }
+
+  // === ユーティリティ ===
+  function pcOptionStyle() {
+    return 'text-align:left;padding:12px 14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text);font-family:inherit;font-size:13px;width:100%';
+  }
+
+  function pcStepHeader(step, title) {
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:12px;color:var(--text-muted)">
+      <span style="background:var(--accent);color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">Step ${step}/4</span>
+      <span>${escapeHtml(title)}</span>
+    </div>`;
+  }
+
+  function pcBackButton(target) {
+    return `<button onclick="pcGoStep('${target}')" style="background:none;border:none;color:var(--text-muted);font-size:12px;cursor:pointer;margin-bottom:10px;padding:0">← 戻る</button>`;
+  }
+
+  function pcAnswer(key, value) {
+    pcState.answers[key] = value;
+    const next = { strategy: 'q2', thesisIntact: 'q3', reverseEntry: 'q4', atTarget: 'result' };
+    pcState.step = next[key];
+    renderProfitCheck();
+  }
+
+  function pcGoStep(step) {
+    pcState.step = step;
+    renderProfitCheck();
+  }
+
+  function pcAnswerLabel(key) {
+    const v = pcState.answers[key];
+    const labels = {
+      strategy: { trend: 'トレンド狙い', range: 'レンジ狙い', unclear: '決めていなかった' },
+      thesisIntact: { yes: '生きている', no: '崩れた', unsure: '判断不能' },
+      reverseEntry: { yes: 'ある', no: 'ない' },
+      atTarget: { yes: '到達', no: '未到達', 'no-target': '未設定' },
+    };
+    return v ? (labels[key]?.[v] || v) : '未回答';
   }
 
   function analyzeStock(ticker) {
