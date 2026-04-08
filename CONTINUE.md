@@ -1,5 +1,149 @@
 # Finx 開発メモ — 次回再開用
 
+## 直近セッションの成果（〜2026-04-09）
+
+### 新機能
+
+#### 1. 投資家ペルソナ分析・Bull vs Bear討論・予測市場オッズ
+- **実装場所:** [src/agent/investment-wisdom.ts](src/agent/investment-wisdom.ts), [src/tools/finance/prediction-market.ts](src/tools/finance/prediction-market.ts)
+- **投資家ペルソナ分析** — バフェット/リンチ/グレアム/マークス/ソロスの5視点で銘柄判定（プロンプトベース）
+- **Bull vs Bear討論** — 強気/弱気の構造化ディベートフォーマット
+- **予測市場オッズ** — Polymarket APIから利下げ確率等を取得
+  - 重要: Polymarket gamma APIは`title`検索が機能しないため、volume順で上位200イベントを取得→ローカルでキーワードフィルタする方式
+  - 日本語キーワード同義語展開対応（「利下げ」→ fed, rate cut, fomc等）
+
+#### 2. 画像アップロード + Vision分析
+- **実装場所:** [public/index.html](public/index.html) `sendMessage()`, [api/chat.ts](api/chat.ts), [src/model/llm.ts](src/model/llm.ts)
+- +ボタンで画像添付 → GPT-5.4 Visionで読み取り
+- base64でchat APIに送信、最初のイテレーションでのみLLMに画像を渡す
+- 10MB制限、sessionStorageで一時保持
+
+#### 3. 会話継続性改善 — FollowUpResolver + ThreadStore
+- **実装場所:** [src/conversation/](src/conversation/), [api/conversations.ts](api/conversations.ts)
+- **ThreadStore** (`finx:thread:*`) — 全会話スレッドのsource of truth（Redis正）
+- **FollowUpResolver** — 「続けて」「1,2」「両方」等をアプリ層で解決
+- **NextActionsExtractor** — assistant回答から番号付き候補を構造化抽出
+- **長文継続要求対応** — 「1. xxx 2. xxx 3. xxx たのむ」のような列挙も拾う
+- **raw/resolved query分離** — userMessage(生入力) と resolvedUserMessage(解決後) を別保存
+- agent-runnerでThreadStoreからInMemoryChatHistoryを復元（cold start対応）
+- agent.buildInitialPromptでThreadStoreのrecentTurnsをprompt contextに注入
+
+#### 4. ポートフォリオAPIにBasic認証
+- **実装場所:** [api/data.ts](api/data.ts)
+- PROTECTED_TYPES: portfolio/dividends/watchlist/snapshots/tax-goals
+- 環境変数: `PORTFOLIO_BASIC_USER=finx`, `PORTFOLIO_BASIC_PASSWORD=0620dad`
+- UI側: `portfolioFetchWithRetry()`, 認証情報はsessionStorageのみ（localStorage不可）
+- `addPositionUI()`を`/api/chat`経由から`/api/portfolio` POST経由に変更（認証漏れ防止）
+
+#### 5. 本日の米国株注目銘柄タブ（US専用MVP）
+- **実装場所:** [src/services/daily-picks.ts](src/services/daily-picks.ts), [api/daily-picks.ts](api/daily-picks.ts)
+- **Deterministic data pipeline（LLM非使用）**
+  - Step 1: 候補抽出（Yahoo trending + Finnhub news mentioned tickers、最大20件）
+  - Step 2: Evidence収集（Yahoo quote + Finnhub company news、並列）
+  - Step 3: Evidence Gating — price/change/volume + 24h以内ニュース必須
+  - Step 4: Scoring — momentum(0-30) + volume(0-25) + catalyst(0-30) + liquidity(0-15)
+- **FINNHUB_API_KEY必須** — 未設定なら`insufficient_data`を返す
+- キャッシュTTL 10分（Redis優先 + in-memoryフォールバック）
+- UI: 説明ボックス + CSS tooltip（`data-tip`属性、`::after`疑似要素で即時表示）
+- 市場ステータスバッジ（ET基準で市場前/取引時間中/取引後/週末を自動判定）
+
+#### 6. 利確判定タブ（rumaトレード理論）
+- **実装場所:** [public/index.html](public/index.html) `loadProfitCheckPage()` / `pcDecide()`
+- **rumaトレード理論の4原則ベース** — 4ステップQAで利確判定
+  - Step 1: トレンド狙い / レンジ狙い / 決めていなかった
+  - Step 2: シナリオ生きている / 崩れた / 判断不能
+  - Step 3: 逆ポジ質問（今売りで入る根拠ある?）
+  - Step 4: 事前利確ライン到達?
+- **8パターンの判定ロジック**（[public/index.html:pcDecide](public/index.html)）
+  - シナリオ崩壊 → 全部利確（撤退）
+  - 逆ポジYES + ターゲット到達 → 全部利確
+  - 逆ポジYES + ターゲット未到達 → 半分利確（50/50決済）
+  - トレンド狙い + 逆ポジNO + ターゲット到達 → 保有継続
+  - レンジ狙い + ターゲット到達 → 全部利確
+  - 逆ポジNO + ターゲット未到達 → 保有継続
+  - 利確ライン未設定 → 半分利確 + 設計やり直し
+  - 戦略未決定 → 一旦半分利確 + 戦略確定
+- 各判定に具体的な株数を計算表示、ポートフォリオ認証と連動
+
+### ガード層の強化
+
+#### Recommendation Guard（時点依存推薦の誤爆防止）
+- **実装場所:** [src/agent/recommendation-guard.ts](src/agent/recommendation-guard.ts)
+- **4層ガード:**
+  1. Query-level evidence（有効ツール2件以上）
+  2. Personalization表現検出（「あなた向け」「過去履歴」等）
+  3. Hedging recommendation検出（「ツール不調」「監視優先」+ ticker列挙）
+  4. Per-ticker evidence（各推薦tickerがtool resultsに含まれているか）
+- **memory_search物理ブロック** — time-sensitive + non-personalized queryではツールリストから除外
+  - `AgentConfig.blockedTools: Set<string>` で実装
+  - agent-runnerで`shouldBlockMemory(intent)` → blockedToolsを渡す
+- **isToolResultValid()** — tool_endが出ても中身が`_errors`/`error`/空ならevidence無効扱い
+
+### UI修正
+
+- **新規会話の切り方と履歴スレッド分離**
+  - sessionId生成を `crypto.randomUUID()` ベースに
+  - Finxロゴ・チャットタブ → `newConversation()`（新threadId + welcome画面）
+  - 送信中のsessionId race防止: `sendMessage()`先頭で`const requestSessionId = sessionId`で固定
+  - welcome HTMLを`getWelcomeMarkup()`で共通化
+- **モバイル対応** — `body`の`height: 100vh` → `100dvh`（アドレスバー問題解消）
+- **CSS tooltip** — 既存の`title`属性より高速表示（hover後100ms）
+  - `[data-tip]::after` で`width: max-content` + `left: 0`（縦長表示バグ修正済み）
+
+### 重要な設計判断
+
+1. **ThreadStoreをsource of truthに統一** — 従来のInMemoryChatHistory（`finx:session:*`）とThreadStore（`finx:thread:*`）の二重管理を解消。Redisの`finx:thread:*`が唯一の正、InMemoryChatHistoryは短期コンテキスト管理用に存続
+2. **daily-picksはLLM非使用** — MVPではdeterministicなweighted scoreで十分。LLMは使わない
+3. **memory_searchは時点依存推薦では物理除外** — プロンプトだけでなくtool listから消す
+4. **Vercelのファイル永続化は信用しない** — Redis正、ファイルはローカル開発フォールバック専用
+
+### 未対応・残課題
+
+- **JP市場対応** — daily-picksはUS専用MVP。J-Quants統合はPhase 2
+- **スレッドstore削除API** — localStorage削除は可能だがRedis側は残る
+- **offeredNextActions抽出精度** — 正規表現ベース、LLMが独自フォーマットで候補出すと抽出失敗の可能性
+- **旧`finx:session:*`データのThreadStore移行** — 新規会話から統一経路、旧データはそのまま
+
+### 最近のコミット履歴（新しい順）
+
+```
+61e201d feat: 利確判定タブ追加 — rumaトレード理論の4原則ベース
+cd8d615 fix: tooltip縦長表示を修正
+505e4df fix: tooltipをCSS即時表示に変更
+d19596c feat: 米国株注目銘柄タブに説明UI・tooltip・市場ステータスバッジ
+cd513b0 fix: 注目銘柄タブをUS専用MVPに整理
+10d027e feat: 本日の注目銘柄タブを追加 — server-side data pipeline
+d16742a fix: recommendation guardをquery-levelからticker-levelに強化
+082a9d2 fix: ロゴ・チャットタブ押下でnewConversation()に統一
+109258b fix: memory_searchをアプリ層で実際にブロック + プロンプト矛盾解消
+4623f77 fix: 時点依存推薦ガードを強化 — 結果中身ベース判定+final answer guard
+6c0b203 fix: 新規会話の切り方と履歴スレッド分離を修正
+```
+
+### 環境変数（Vercel本番に設定が必要）
+
+```
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+FINNHUB_API_KEY=...                    # daily-picks必須
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+PORTFOLIO_BASIC_USER=finx              # ポートフォリオ認証
+PORTFOLIO_BASIC_PASSWORD=0620dad       # ポートフォリオ認証
+```
+
+### 開発のコツ（このセッションで学んだこと）
+
+1. **git lockに注意** — 並列gitコマンドで`.git/index.lock`が残ることがある。失敗したら`rm -f .git/index.lock`
+2. **HTMLの二重管理** — `public/index.html` と `src/web/public/index.html` は必ず同期。`cp`で済む
+3. **CSS inline警告は無視してOK** — 既存のパターンに合わせてインラインで書いている
+4. **Vercelのmax function制限** — Hobby 12個、Pro 24個。新APIは`api/data.ts`経由で統合するか直接追加判断
+5. **Tool result checkは中身を見る** — ツール名だけでは成功判定に不十分
+
+---
+
+
+
 ## プロジェクト概要
 
 **Finx** — 金融リサーチAIエージェント。ポートフォリオ管理、アラート通知、バックテスト、ペーパートレード、投資叡智ベースのAI分析を提供。
