@@ -817,7 +817,7 @@
         <div class="section-title">パフォーマンス推移</div>
         <div id="chart-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px;min-height:200px">
           <div class="portfolio-loading" id="chart-loading">チャートデータを取得中...</div>
-          <div id="perf-chart" style="width:100%;height:250px;display:none"></div>
+          <div id="perf-chart" style="width:100%;height:350px;display:none"></div>
           <div id="chart-legend" style="display:none;font-size:11px;color:var(--text-muted);margin-top:8px"></div>
         </div>
         <div class="analysis-grid">
@@ -1018,7 +1018,7 @@
 
       <div class="section-title" style="margin-top:16px">資産推移</div>
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px">
-        <div id="bt-chart" style="width:100%;height:300px"></div>
+        <div id="bt-chart" style="width:100%;height:400px"></div>
         <div id="bt-chart-legend" style="font-size:11px;color:var(--text-muted);margin-top:8px"></div>
       </div>
 
@@ -1615,12 +1615,22 @@
 
     perfChartInstance = LightweightCharts.createChart(chartEl, {
       width: chartEl.clientWidth,
-      height: 250,
+      height: 350,
       layout: { background: { color: bgColor }, textColor },
       grid: { vertLines: { color: borderColor, style: 1 }, horzLines: { color: borderColor, style: 1 } },
-      timeScale: { borderColor, timeVisible: false },
+      timeScale: {
+        borderColor,
+        timeVisible: false,
+        barSpacing: 30,           // 1データ点あたりの幅（広め）
+        minBarSpacing: 4,         // ホイールズームアウトの下限
+        rightOffset: 2,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+      },
       rightPriceScale: { borderColor },
       crosshair: { mode: 1 },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
     });
 
     const lastPort = portData[portData.length - 1];
@@ -1638,7 +1648,12 @@
     const baseSeries = perfChartInstance.addLineSeries({ color: '#9ca3af', lineWidth: 1, lineStyle: 3 });
     baseSeries.setData(portData.map(d => ({ time: d.time, value: 100 })));
 
+    // 初期表示は全データfit。その後はユーザー操作で自由にズーム可能
     perfChartInstance.timeScale().fitContent();
+    // データ点が少ない時はbarSpacingを大きく取る（横を広げる）
+    if (portData.length <= 10) {
+      perfChartInstance.timeScale().applyOptions({ barSpacing: 60 });
+    }
 
     // リサイズ対応
     new ResizeObserver(entries => {
@@ -2558,12 +2573,20 @@
 
     btChartInstance = LightweightCharts.createChart(chartEl, {
       width: chartEl.clientWidth,
-      height: 300,
+      height: 400,
       layout: { background: { color: bgColor }, textColor },
       grid: { vertLines: { color: borderColor, style: 1 }, horzLines: { color: borderColor, style: 1 } },
-      timeScale: { borderColor, timeVisible: false },
+      timeScale: {
+        borderColor,
+        timeVisible: false,
+        barSpacing: 12,
+        minBarSpacing: 2,
+        rightOffset: 2,
+      },
       rightPriceScale: { borderColor },
       crosshair: { mode: 1 },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
     });
 
     const finalEquity = equityCurve[equityCurve.length - 1].equity;
