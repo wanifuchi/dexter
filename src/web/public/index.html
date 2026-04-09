@@ -2227,16 +2227,8 @@
     sendMessage();
   }
 
-  // --- ポートフォリオ自動更新（60秒ごと） ---
-  let portfolioAutoRefresh = null;
-  function startPortfolioRefresh() {
-    if (portfolioAutoRefresh) return;
-    portfolioAutoRefresh = setInterval(() => {
-      const activePage = document.querySelector('.page.active');
-      if (activePage?.id === 'portfolio-page') loadPortfolioPage();
-    }, 60000);
-  }
-  startPortfolioRefresh();
+  // --- ポートフォリオ自動更新は無効 ---
+  // 手動Refreshのみ。タブ切替や編集中の意図しない再描画を避けるため自動更新は廃止。
 
   // --- ペーパートレード ---
   // --- 自動戦略 ---
