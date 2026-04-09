@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { formatToolResult } from '../types.js';
 
 const GAMMA_API = 'https://gamma-api.polymarket.com';
+const CLOB_API = 'https://clob.polymarket.com';
 
 // 検索キーワードの同義語マッピング（日本語→英語対応）
 const KEYWORD_ALIASES: Record<string, string[]> = {
@@ -46,6 +47,12 @@ interface MarketResult {
   volume: number;
   endDate: string;
   slug: string;
+  clobTokenIds?: string[];
+}
+
+interface PriceHistoryPoint {
+  timestamp: number;
+  price: number;
 }
 
 /**
@@ -119,6 +126,13 @@ async function searchPolymarket(query: string, limit: number): Promise<MarketRes
         // 価格データがないものはスキップ
         if (prices.length === 0 || prices.every((p: string) => !p)) continue;
 
+        let clobTokenIds: string[] = [];
+        try {
+          clobTokenIds = typeof market.clobTokenIds === 'string'
+            ? JSON.parse(market.clobTokenIds)
+            : (market.clobTokenIds ?? []);
+        } catch {}
+
         results.push({
           question: market.question ?? event.title ?? '',
           outcomes,
@@ -126,6 +140,7 @@ async function searchPolymarket(query: string, limit: number): Promise<MarketRes
           volume: parseFloat(event.volume ?? '0'),
           endDate: market.endDate ?? event.endDate ?? '',
           slug: eventSlug,
+          clobTokenIds,
         });
       }
     }
@@ -165,6 +180,8 @@ function formatResults(markets: MarketResult[]): Record<string, unknown> {
         volume: `$${m.volume.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
         endDate: m.endDate ? new Date(m.endDate).toLocaleDateString('ja-JP') : 'N/A',
         url: `https://polymarket.com/event/${m.slug}`,
+        // history取得用のtoken IDs（最初のoutcome＝Yes）
+        yesTokenId: m.clobTokenIds && m.clobTokenIds[0] ? m.clobTokenIds[0] : undefined,
       };
     }),
     source: 'Polymarket（予測市場 — 群衆の予測確率）',
@@ -189,7 +206,80 @@ export const predictionMarketTool = new DynamicStructuredTool({
 export const PREDICTION_MARKET_DESCRIPTION = `Searches Polymarket prediction markets for event probabilities.
 Use for: Fed rate decisions, elections, GDP forecasts, geopolitical events, tariff odds, recession probability.
 Returns market-implied probabilities (crowd-sourced forecasts).
+Each market includes a yesTokenId — pass it to prediction_market_history to get the price history (probability changes over time).
 No API key required — uses public endpoints.
 Supports Japanese keywords: '利下げ', '利上げ', '景気後退', 'インフレ', '関税', '選挙'
 Examples: "Fed rate cut", "recession 2026", "tariff China", "利下げ"
 Combine with macro analysis for more informed investment decisions.`;
+
+// === Polymarket価格履歴 ===
+
+/**
+ * Polymarket CLOB APIから市場の価格履歴を取得
+ * 「Fed利下げ確率の30日推移」のような時系列データ
+ */
+async function fetchMarketHistory(tokenId: string, interval: string = '1d'): Promise<PriceHistoryPoint[]> {
+  try {
+    const url = `${CLOB_API}/prices-history?market=${encodeURIComponent(tokenId)}&interval=${interval}&fidelity=60`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) return [];
+    const data = await res.json() as { history?: Array<{ t: number; p: number }> };
+    return (data.history ?? []).map(p => ({ timestamp: p.t, price: p.p }));
+  } catch {
+    return [];
+  }
+}
+
+function summarizeHistory(history: PriceHistoryPoint[]): Record<string, unknown> {
+  if (history.length === 0) {
+    return { error: 'No history data available for this market' };
+  }
+
+  const prices = history.map(h => h.price);
+  const latest = prices[prices.length - 1];
+  const first = prices[0];
+  const max = Math.max(...prices);
+  const min = Math.min(...prices);
+  const change = latest - first;
+  const changePct = first > 0 ? ((change / first) * 100) : 0;
+
+  // 最新10ポイントだけ詳細表示（多すぎると context を食う）
+  const recent = history.slice(-10).map(h => ({
+    date: new Date(h.timestamp * 1000).toISOString().slice(0, 10),
+    probability: `${(h.price * 100).toFixed(1)}%`,
+  }));
+
+  return {
+    summary: {
+      currentProbability: `${(latest * 100).toFixed(1)}%`,
+      startProbability: `${(first * 100).toFixed(1)}%`,
+      change: `${change >= 0 ? '+' : ''}${(change * 100).toFixed(1)}pp (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)`,
+      max: `${(max * 100).toFixed(1)}%`,
+      min: `${(min * 100).toFixed(1)}%`,
+      dataPoints: history.length,
+      periodStart: new Date(history[0].timestamp * 1000).toISOString().slice(0, 10),
+      periodEnd: new Date(history[history.length - 1].timestamp * 1000).toISOString().slice(0, 10),
+    },
+    recentObservations: recent,
+    note: '確率の推移は市場参加者のセンチメントの変化を示します。',
+  };
+}
+
+export const predictionMarketHistoryTool = new DynamicStructuredTool({
+  name: 'prediction_market_history',
+  description: 'Fetch Polymarket market probability history (time series of YES odds). Use after prediction_market to see how the probability has evolved over time. Pass the yesTokenId from a prediction_market result.',
+  schema: z.object({
+    tokenId: z.string().describe('The yesTokenId from a prediction_market result (long numeric string)'),
+    interval: z.enum(['1h', '6h', '1d', '1w', '1m', 'max']).optional().default('1d').describe('Time interval (default: 1d)'),
+  }),
+  func: async (input) => {
+    const history = await fetchMarketHistory(input.tokenId, input.interval ?? '1d');
+    return formatToolResult(summarizeHistory(history));
+  },
+});
+
+export const PREDICTION_MARKET_HISTORY_DESCRIPTION = `Fetches Polymarket probability history for a specific market.
+Use after prediction_market to see how the YES probability evolved over time.
+Pass the yesTokenId from a prediction_market result.
+Returns: current/start probability, max/min, recent observations.
+Useful for: "How has the Fed rate cut probability changed over the past month?"`;

@@ -29,7 +29,8 @@ import {
 } from './finance-jp/index.js';
 import { jpStockPrice, JP_STOCK_PRICE_DESCRIPTION, isJQuantsAvailable } from './finance-jp/index.js';
 import { createJpScreener, JP_SCREENER_DESCRIPTION } from './finance-jp/index.js';
-import { predictionMarketTool, PREDICTION_MARKET_DESCRIPTION } from './finance/prediction-market.js';
+import { predictionMarketTool, predictionMarketHistoryTool, PREDICTION_MARKET_DESCRIPTION, PREDICTION_MARKET_HISTORY_DESCRIPTION } from './finance/prediction-market.js';
+import { fredTool, FRED_DESCRIPTION } from './finance/fred.js';
 
 import { exaSearch, perplexitySearch, tavilySearch, WEB_SEARCH_DESCRIPTION, xSearchTool, X_SEARCH_DESCRIPTION } from './search/index.js';
 import { skillTool, SKILL_TOOL_DESCRIPTION } from './skill.js';
@@ -279,6 +280,20 @@ export function getToolRegistry(model: string): RegisteredTool[] {
     tool: predictionMarketTool,
     description: PREDICTION_MARKET_DESCRIPTION,
   });
+  tools.push({
+    name: 'prediction_market_history',
+    tool: predictionMarketHistoryTool,
+    description: PREDICTION_MARKET_HISTORY_DESCRIPTION,
+  });
+
+  // === FRED 経済指標ツール（FRED_API_KEY必須） ===
+  if (process.env.FRED_API_KEY) {
+    tools.push({
+      name: 'fred_data',
+      tool: fredTool,
+      description: FRED_DESCRIPTION,
+    });
+  }
 
   // === トレーディングツール（常時有効） ===
   tools.push(

@@ -61,7 +61,7 @@ export function shouldBlockMemory(intent: RecommendationIntent): boolean {
 
 const CURRENT_DATA_TOOLS = new Set([
   'get_market_data', 'get_financials', 'web_search', 'stock_screener',
-  'prediction_market', 'yahoo_quote', 'yahoo_chart',
+  'prediction_market', 'prediction_market_history', 'fred_data', 'yahoo_quote', 'yahoo_chart',
   'finnhub_quote', 'finnhub_news', 'finnhub_recommendation', 'finnhub_price_target',
   'fmp_screener', 'fmp_profile', 'polygon_prev_close',
   'td_technicals', 'td_time_series', 'av_global_quote',
