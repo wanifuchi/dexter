@@ -53,10 +53,14 @@ async function fetchEarningsDate(ticker: string): Promise<EarningsInfo> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const authHeader = req.headers['authorization'];
-    if (authHeader !== `Bearer ${cronSecret}`) return res.status(401).json({ error: 'Unauthorized' });
+  // /api/data?type=earnings 経由の場合はBasic認証済みなのでcron secretスキップ
+  const isFromDataApi = req.query?.type === 'earnings';
+  if (!isFromDataApi) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      const authHeader = req.headers['authorization'];
+      if (authHeader !== `Bearer ${cronSecret}`) return res.status(401).json({ error: 'Unauthorized' });
+    }
   }
 
   try {

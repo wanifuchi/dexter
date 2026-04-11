@@ -59,3 +59,6 @@ yarn-error.log*
 logs/
 coverage.json
 .vercel
+.playwright-mcp/
+google-finance*.png
+google-finance*.md

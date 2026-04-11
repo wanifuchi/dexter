@@ -717,6 +717,44 @@
   </div>
 </div>
 
+<!-- 銘柄詳細オーバーレイ -->
+<div id="stock-detail-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);z-index:200;overflow-y:auto">
+  <div style="max-width:900px;margin:0 auto;padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <span id="sd-ticker" style="font-size:22px;font-weight:700"></span>
+        <span id="sd-name" style="font-size:14px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
+      <button onclick="closeStockDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;color:var(--text);font-family:inherit;font-size:13px">閉じる</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <span id="sd-price" style="font-size:28px;font-weight:700"></span>
+      <span id="sd-change" style="font-size:16px;margin-left:8px"></span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div id="sd-chart-type" style="display:flex;gap:4px">
+        <button onclick="setStockChartType('Line')" class="sd-type-btn active" style="padding:3px 10px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;font-size:11px">ライン</button>
+        <button onclick="setStockChartType('Area')" class="sd-type-btn" style="padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-muted);cursor:pointer;font-family:inherit;font-size:11px">エリア</button>
+        <button onclick="setStockChartType('Candlestick')" class="sd-type-btn" style="padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-muted);cursor:pointer;font-family:inherit;font-size:11px">ローソク足</button>
+      </div>
+      <div id="sd-period-tabs" style="display:flex;gap:4px">
+        <button onclick="setStockPeriod('1d')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">1日</button>
+        <button onclick="setStockPeriod('5d')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">5日</button>
+        <button onclick="setStockPeriod('1mo')" class="sd-period-btn active" style="padding:3px 8px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);cursor:pointer;color:#fff;font-family:inherit;font-size:11px">1M</button>
+        <button onclick="setStockPeriod('6mo')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">6M</button>
+        <button onclick="setStockPeriod('ytd')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">YTD</button>
+        <button onclick="setStockPeriod('1y')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">1Y</button>
+        <button onclick="setStockPeriod('5y')" class="sd-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">5Y</button>
+      </div>
+    </div>
+    <div id="sd-chart" style="width:100%;height:400px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
+    <div id="sd-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;font-size:13px"></div>
+    <div style="display:flex;gap:8px">
+      <button onclick="analyzeStock(sdState.ticker)" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">チャットで詳細分析</button>
+    </div>
+  </div>
+</div>
+
 <!-- 利確判定ページ -->
 <div class="page" id="profit-check-page" style="overflow-y:auto;padding:20px">
   <div style="max-width:760px;margin:0 auto">
@@ -814,7 +852,15 @@
 
       <!-- 分析タブ -->
       <div class="pf-tab-content" id="pftab-analysis">
-        <div class="section-title">パフォーマンス推移</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="section-title" style="margin-bottom:0">パフォーマンス推移</div>
+          <div id="perf-period-tabs" style="display:flex;gap:4px;font-size:11px">
+            <button onclick="setPerfPeriod('1w')" class="perf-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">1W</button>
+            <button onclick="setPerfPeriod('1m')" class="perf-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">1M</button>
+            <button onclick="setPerfPeriod('3m')" class="perf-period-btn" style="padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);cursor:pointer;color:var(--text-muted);font-family:inherit;font-size:11px">3M</button>
+            <button onclick="setPerfPeriod('all')" class="perf-period-btn active" style="padding:3px 8px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);cursor:pointer;color:#fff;font-family:inherit;font-size:11px">ALL</button>
+          </div>
+        </div>
         <div id="chart-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px;min-height:200px">
           <div class="portfolio-loading" id="chart-loading">チャートデータを取得中...</div>
           <div id="perf-chart" style="width:100%;height:350px;display:none"></div>
@@ -843,6 +889,10 @@
             <span class="chevron">&#x25BC;</span>
           </div>
           <div class="collapsible-body"><div id="fx-analysis"></div></div>
+        </div>
+        <div style="margin-top:20px">
+          <div class="section-title">今後の決算発表</div>
+          <div id="earnings-calendar" style="font-size:13px;color:var(--text-muted)">読み込み中...</div>
         </div>
       </div>
 
@@ -1564,7 +1614,9 @@
     try {
       const res = await portfolioFetchWithRetry('/api/snapshots');
       const data = await res.json();
-      renderChart(data.snapshots || [], data.sp500 || []);
+      perfSnapshotsAll = data.snapshots || [];
+      perfSp500All = data.sp500 || [];
+      renderChart(perfSnapshotsAll, perfSp500All);
     } catch {
       document.getElementById('chart-loading').textContent = 'チャートの読み込みに失敗しました';
     }
@@ -2236,6 +2288,258 @@
     return v ? (labels[key]?.[v] || v) : '未回答';
   }
 
+  // ============================================================
+  // 決算カレンダー
+  // ============================================================
+  async function loadEarningsCalendar(positions) {
+    const el = document.getElementById('earnings-calendar');
+    if (!el) return;
+    const tickers = [...new Set(positions.map(p => p.ticker))];
+    if (tickers.length === 0) { el.textContent = '保有銘柄なし'; return; }
+
+    try {
+      const res = await portfolioFetchWithRetry(`/api/data?type=earnings&tickers=${tickers.join(',')}`);
+      const data = await res.json();
+      const earnings = data.all || data.upcoming || [];
+
+      if (earnings.length === 0) {
+        el.textContent = '直近60日以内に決算予定のある保有銘柄はありません';
+        return;
+      }
+
+      el.innerHTML = earnings.map(e => {
+        const d = new Date(e.earningsDate || e.date);
+        const days = e.daysUntil ?? Math.ceil((d.getTime() - Date.now()) / 86400000);
+        const urgency = days <= 0 ? '🔴 今日' : days <= 3 ? '🟡' : '📅';
+        const dateStr = `${d.getMonth()+1}/${d.getDate()}`;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+          <div>
+            <span style="font-weight:600;color:var(--text)">${e.ticker}</span>
+            <span style="margin-left:8px;color:var(--text-muted)">${dateStr}${e.hour === 'bmo' ? ' 寄り前' : e.hour === 'amc' ? ' 引け後' : ''}</span>
+          </div>
+          <div style="font-size:12px">${urgency} ${days > 0 ? days + '日後' : ''}</div>
+        </div>`;
+      }).join('');
+    } catch {
+      el.textContent = '決算データの取得に失敗しました';
+    }
+  }
+
+  // ============================================================
+  // パフォーマンスチャート期間切替
+  // ============================================================
+  let perfSnapshotsAll = [];
+  let perfSp500All = [];
+
+  function setPerfPeriod(period) {
+    // タブのactive切替
+    document.querySelectorAll('.perf-period-btn').forEach(b => {
+      b.style.background = 'var(--bg-secondary)';
+      b.style.color = 'var(--text-muted)';
+      b.style.borderColor = 'var(--border)';
+    });
+    event.target.style.background = 'var(--accent)';
+    event.target.style.color = '#fff';
+    event.target.style.borderColor = 'var(--accent)';
+
+    // 日付フィルタ
+    let cutoff = null;
+    const now = new Date();
+    if (period === '1w') cutoff = new Date(now - 7 * 86400000);
+    else if (period === '1m') cutoff = new Date(now - 30 * 86400000);
+    else if (period === '3m') cutoff = new Date(now - 90 * 86400000);
+    // 'all' は cutoff = null → 全件
+
+    const filtered = cutoff
+      ? perfSnapshotsAll.filter(s => new Date(s.date) >= cutoff)
+      : perfSnapshotsAll;
+    const filteredSp = cutoff
+      ? perfSp500All.filter(s => new Date(s.date) >= cutoff)
+      : perfSp500All;
+
+    renderChart(filtered, filteredSp);
+  }
+
+  // ============================================================
+  // 銘柄詳細チャート（Google Finance Beta風）
+  // ============================================================
+  let sdChartInstance = null;
+  let sdState = { ticker: '', period: '1mo', chartType: 'Line', ohlcData: null };
+
+  async function showStockDetail(ticker) {
+    sdState.ticker = ticker;
+    sdState.period = '1mo';
+    sdState.chartType = 'Line';
+
+    document.getElementById('sd-ticker').textContent = ticker;
+    document.getElementById('sd-name').textContent = '';
+    document.getElementById('sd-price').textContent = '...';
+    document.getElementById('sd-change').textContent = '';
+    document.getElementById('sd-stats').innerHTML = '';
+    document.getElementById('sd-chart').innerHTML = '';
+    document.getElementById('stock-detail-overlay').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+
+    // タブリセット
+    document.querySelectorAll('.sd-period-btn').forEach(b => {
+      b.style.background = 'var(--bg-secondary)'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'var(--border)';
+    });
+    document.querySelectorAll('.sd-period-btn')[2].style.background = 'var(--accent)';
+    document.querySelectorAll('.sd-period-btn')[2].style.color = '#fff';
+    document.querySelectorAll('.sd-period-btn')[2].style.borderColor = 'var(--accent)';
+    document.querySelectorAll('.sd-type-btn').forEach(b => {
+      b.style.background = 'var(--bg-secondary)'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'var(--border)';
+    });
+    document.querySelectorAll('.sd-type-btn')[0].style.background = 'var(--accent)';
+    document.querySelectorAll('.sd-type-btn')[0].style.color = '#fff';
+    document.querySelectorAll('.sd-type-btn')[0].style.borderColor = 'var(--accent)';
+
+    await loadStockChart(ticker, '1mo');
+  }
+
+  function closeStockDetail() {
+    document.getElementById('stock-detail-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+    if (sdChartInstance) { sdChartInstance.remove(); sdChartInstance = null; }
+  }
+
+  async function setStockPeriod(period) {
+    sdState.period = period;
+    document.querySelectorAll('.sd-period-btn').forEach(b => {
+      b.style.background = 'var(--bg-secondary)'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'var(--border)';
+    });
+    event.target.style.background = 'var(--accent)'; event.target.style.color = '#fff'; event.target.style.borderColor = 'var(--accent)';
+    await loadStockChart(sdState.ticker, period);
+  }
+
+  function setStockChartType(type) {
+    sdState.chartType = type;
+    document.querySelectorAll('.sd-type-btn').forEach(b => {
+      b.style.background = 'var(--bg-secondary)'; b.style.color = 'var(--text-muted)'; b.style.borderColor = 'var(--border)';
+    });
+    event.target.style.background = 'var(--accent)'; event.target.style.color = '#fff'; event.target.style.borderColor = 'var(--accent)';
+    renderStockChart();
+  }
+
+  async function loadStockChart(ticker, range) {
+    const chartEl = document.getElementById('sd-chart');
+    chartEl.innerHTML = '<div style="text-align:center;padding:80px 0;color:var(--text-muted)">読み込み中...</div>';
+
+    try {
+      const interval = { '1d': '5m', '5d': '15m' }[range] || '1d';
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`);
+      const data = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) throw new Error('No data');
+
+      const meta = result.meta;
+      const timestamps = result.timestamp || [];
+      const quote = result.indicators?.quote?.[0] || {};
+
+      // ヘッダー更新
+      document.getElementById('sd-name').textContent = meta.shortName || meta.longName || '';
+      const price = meta.regularMarketPrice;
+      const prevClose = meta.chartPreviousClose || meta.previousClose;
+      const change = price - prevClose;
+      const changePct = prevClose ? (change / prevClose * 100) : 0;
+      document.getElementById('sd-price').textContent = `$${price.toFixed(2)}`;
+      const changeEl = document.getElementById('sd-change');
+      changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`;
+      changeEl.style.color = change >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // stats
+      document.getElementById('sd-stats').innerHTML = `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <div style="color:var(--text-muted);font-size:11px">前日終値</div>
+          <div style="font-weight:600">$${(prevClose || 0).toFixed(2)}</div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <div style="color:var(--text-muted);font-size:11px">52週高値</div>
+          <div style="font-weight:600">$${(meta.fiftyTwoWeekHigh || 0).toFixed(2)}</div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <div style="color:var(--text-muted);font-size:11px">52週安値</div>
+          <div style="font-weight:600">$${(meta.fiftyTwoWeekLow || 0).toFixed(2)}</div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <div style="color:var(--text-muted);font-size:11px">出来高</div>
+          <div style="font-weight:600">${meta.regularMarketVolume > 1e6 ? (meta.regularMarketVolume/1e6).toFixed(1)+'M' : (meta.regularMarketVolume/1e3).toFixed(0)+'K'}</div>
+        </div>
+      `;
+
+      // OHLCデータを保存
+      sdState.ohlcData = timestamps.map((t, i) => ({
+        time: interval.includes('m') ? t : new Date(t * 1000).toISOString().slice(0, 10),
+        open: quote.open?.[i],
+        high: quote.high?.[i],
+        low: quote.low?.[i],
+        close: quote.close?.[i],
+        value: quote.close?.[i],
+      })).filter(d => d.close != null);
+
+      renderStockChart();
+    } catch (e) {
+      chartEl.innerHTML = '<div style="text-align:center;padding:80px 0;color:var(--text-muted)">チャートデータの取得に失敗しました</div>';
+    }
+  }
+
+  function renderStockChart() {
+    const chartEl = document.getElementById('sd-chart');
+    if (sdChartInstance) { sdChartInstance.remove(); sdChartInstance = null; }
+    chartEl.innerHTML = '';
+
+    if (!sdState.ohlcData || sdState.ohlcData.length === 0) return;
+
+    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#000';
+    const borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#ddd';
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-card').trim() || '#fff';
+
+    sdChartInstance = LightweightCharts.createChart(chartEl, {
+      width: chartEl.clientWidth,
+      height: 400,
+      layout: { background: { color: bgColor }, textColor },
+      grid: { vertLines: { color: borderColor, style: 1 }, horzLines: { color: borderColor, style: 1 } },
+      timeScale: { borderColor, timeVisible: sdState.period === '1d' || sdState.period === '5d', barSpacing: 8, minBarSpacing: 2 },
+      rightPriceScale: { borderColor },
+      crosshair: { mode: 0 },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true } },
+    });
+
+    const lastClose = sdState.ohlcData[sdState.ohlcData.length - 1].close;
+    const firstClose = sdState.ohlcData[0].close || sdState.ohlcData[0].open;
+    const isUp = lastClose >= firstClose;
+
+    if (sdState.chartType === 'Candlestick') {
+      const series = sdChartInstance.addCandlestickSeries({
+        upColor: '#16a34a', downColor: '#dc2626',
+        borderUpColor: '#16a34a', borderDownColor: '#dc2626',
+        wickUpColor: '#16a34a', wickDownColor: '#dc2626',
+      });
+      series.setData(sdState.ohlcData);
+    } else if (sdState.chartType === 'Area') {
+      const series = sdChartInstance.addAreaSeries({
+        lineColor: isUp ? '#16a34a' : '#dc2626',
+        topColor: isUp ? 'rgba(22,163,74,0.3)' : 'rgba(220,38,38,0.3)',
+        bottomColor: isUp ? 'rgba(22,163,74,0.02)' : 'rgba(220,38,38,0.02)',
+        lineWidth: 2,
+      });
+      series.setData(sdState.ohlcData.map(d => ({ time: d.time, value: d.close })));
+    } else {
+      const series = sdChartInstance.addLineSeries({
+        color: isUp ? '#16a34a' : '#dc2626',
+        lineWidth: 2,
+      });
+      series.setData(sdState.ohlcData.map(d => ({ time: d.time, value: d.close })));
+    }
+
+    sdChartInstance.timeScale().fitContent();
+
+    new ResizeObserver(entries => {
+      if (sdChartInstance && entries[0]) sdChartInstance.applyOptions({ width: entries[0].contentRect.width });
+    }).observe(chartEl);
+  }
+
   function analyzeStock(ticker) {
     showPage('chat');
     inputEl.value = `${ticker}の最新の財務状況、テクニカル分析、今後の見通しを総合的に分析して`;
@@ -2902,7 +3206,7 @@
         smaHtml = `<span class="${pnlClass(diff)}">${fmtPct(diff)}</span>`;
       }
       return `<tr>
-        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="toggleMiniChart(this,'${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
+        <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="showStockDetail('${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
         <td><input type="number" min="0" value="${p.shares}" data-ticker="${p.ticker}" data-account="${p.account}" data-avg-cost="${p.avgCost}" data-price="${p.currentPrice ?? ''}" class="shares-input" onchange="updateShares(this)" onfocus="this.select()" style="width:60px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
         <td>${price}</td>
         <td>${pnlPct}</td>
@@ -3228,6 +3532,8 @@
 
       // チャートは非同期で読み込み（メインデータの表示をブロックしない）
       loadChart();
+      // 決算カレンダーも非同期
+      loadEarningsCalendar(data.positions || []);
 
       loading.style.display = 'none';
       content.style.display = 'block';
