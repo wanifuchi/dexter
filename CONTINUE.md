@@ -1,5 +1,119 @@
 # Finx 開発メモ — 次回再開用
 
+## 直近セッションの成果（2026-04-10）
+
+### 新機能
+
+#### 1. FRED経済指標ツール (fred_data)
+- **実装場所:** [src/tools/finance/fred.ts](src/tools/finance/fred.ts)
+- 米国経済統計をFRED REST APIから取得（Python/fredapi不使用、直接HTTP）
+- 対応シリーズ: Fed Funds, Treasury yields (2y/10y/30y), CPI, Core CPI, PCE, Core PCE,
+  失業率, 非農業雇用, GDP, 実質GDP, M2, VIX, USD/JPY, T10Y2Y spread, T10Y3M spread
+- 日本語キーワード対応（利下げ/失業率/インフレ/イールドカーブ/ドル円等）
+- MoM/YoY変化率を自動計算
+- **`FRED_API_KEY` 環境変数必須**（Vercelに設定済み）
+  - 取得: https://fred.stlouisfed.org/docs/api/api_key.html
+  - 未設定時は条件付きregistryで除外される
+
+#### 2. lightweight-charts導入
+- **実装場所:** [public/index.html](public/index.html) `renderChart()` / `renderBtChart()`
+- TradingView製チャートライブラリ、CDN経由で読み込み（`lightweight-charts@4.2.0`）
+- パフォーマンスチャート + バックテストチャートをSVG手書きから置き換え
+- 既存のダーク/ライトテーマと統合（`getComputedStyle`でCSS変数を取得）
+- 高さ: パフォーマンス 350px、バックテスト 400px
+- **ズーム/パン操作を明示有効化** — `handleScroll` / `handleScale` を設定
+  - マウスホイール: 時間軸ズーム
+  - ドラッグ: パン
+  - 時間軸/価格軸エリアをドラッグ: スケール変更
+  - ピンチ（タッチ）: ズーム
+  - ダブルクリック: `fitContent()`リセット
+- データ点が少ない場合（≤10）は `barSpacing=60` で広めに表示
+- ミニチャート（スパークライン）はSVGのまま継続（パフォーマンス優先）
+
+#### 3. Polymarket価格履歴ツール (prediction_market_history)
+- **実装場所:** [src/tools/finance/prediction-market.ts](src/tools/finance/prediction-market.ts)
+- Polymarket CLOB API `/prices-history` から時系列確率を取得
+- `prediction_market` 結果の `yesTokenId` を渡して履歴取得
+- `summary` (current/start/max/min/change) + `recentObservations` (直近10点) を返す
+- 「Fed利下げ確率の30日推移」のようなクエリに対応
+- LLMが2ステップで自動実行（prediction_market → prediction_market_history）
+
+### 運用面の修正
+
+#### ポートフォリオ自動更新を停止
+- **実装場所:** [public/index.html:2230](public/index.html#L2230)
+- 従来: 60秒ごとに `loadPortfolioPage()` を自動実行
+- 問題: チャート再描画によるちらつき、編集中ステート消失
+- **修正:** 自動更新を廃止、手動Refreshボタンのみ
+
+#### アラートルール全面更新
+- **実行方法:** one-shot Node scriptで直接Redis (`finx:alert-rules`) を更新
+- 全20ルール（10銘柄 × 上抜け/下抜け）を現在値ベースで再設定
+- rumaトレード理論の±10〜15%レンジで設計
+- 特に SOXL ($58→$80)、WULF ($18.5→$22) は大幅ズレがあり修正
+- **重要:** 定期的なメンテナンスが必要。価格が大きく動いた時は再調整すること
+- 次回更新時の参考スクリプト:
+  ```bash
+  vercel env pull /tmp/finx.env
+  # scriptで @upstash/redis 経由で finx:alert-rules を書き換える
+  # cleanup: rm /tmp/finx.env
+  ```
+
+### lightweight-charts の運用メモ
+
+**チャート高さの拡大:**
+- `#perf-chart`: 250px → 350px
+- `#bt-chart`: 300px → 400px
+
+**timeScale 設定:**
+```js
+timeScale: {
+  borderColor,
+  timeVisible: false,
+  barSpacing: 30,       // パフォーマンスチャート
+  minBarSpacing: 4,     // ズームアウト下限
+  rightOffset: 2,
+}
+```
+
+**handleScroll/handleScale を明示的に有効化しないとデフォルトが制限的。**
+
+### 「120」の意味
+パフォーマンス推移チャートの縦軸は **基準=100** のrebased index。
+`(現在評価額 / 期間開始日評価額) × 100` で計算される。
+- 120.92 = +20.92% (ポートフォリオ)
+- 107.58 = +7.58% (S&P500)
+
+### 環境変数の追加
+```
+FRED_API_KEY=...   # FRED経済指標ツール用（無料で取得可能）
+```
+Vercel production/preview/development すべてに設定済み。
+
+### 最近のコミット履歴（新しい順）
+```
+d83fe72 fix: チャートのズーム・パン操作を有効化 + 高さ拡大
+85ad2dd fix: ポートフォリオの60秒自動更新を停止 — 手動Refreshのみに
+5f185dd feat: FRED経済指標 + lightweight-charts + Polymarket価格履歴を追加
+d21ffac docs: 直近セッションの成果をCONTINUE.mdに追記
+61e201d feat: 利確判定タブ追加 — rumaトレード理論の4原則ベース
+```
+
+### 次回の候補タスク
+- **チャート期間選択ボタン** (1w/1m/3m/全期間) を追加
+- **FRED + Polymarket連携表示** — 「利下げ確率 vs 実際のFed Funds Rate」の比較グラフ
+- **アラートルール自動調整** — 価格が閾値の±5%以内に入ったら通知 + 自動再設定提案
+- **ポートフォリオチャートの「金額表示モード」** を追加（基準100と切替可能に）
+- **J-Quants統合（Phase 2）** — 日本株の注目銘柄タブ対応
+
+### 開発のコツ（追加）
+- **Redis直接書き換え**: `vercel env pull` → `@upstash/redis` で運用スクリプトが書ける
+- **lightweight-charts の時間軸操作**: `handleScroll`/`handleScale` を省略するとズーム制限される
+- **データ点が少ない時のチャート**: `barSpacing` を大きくしないと潰れて見える
+- **環境変数追加**: `vercel env add NAME production <<< "value"` でCLIから即追加可能
+
+---
+
 ## 直近セッションの成果（〜2026-04-09）
 
 ### 新機能
