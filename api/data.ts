@@ -84,6 +84,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const mod = await import('../src/api-handlers/earnings-calendar.js');
       return mod.default(req, res);
     }
+    case 'chart': {
+      // Yahoo Finance chart プロキシ（ブラウザCORS回避）
+      const ticker = req.query.ticker as string;
+      const range = (req.query.range as string) || '1mo';
+      const interval = (req.query.interval as string) || '1d';
+      if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' } });
+        const data = await r.json();
+        return res.json(data);
+      } catch (e) {
+        return res.status(502).json({ error: 'Failed to fetch chart data' });
+      }
+    }
     default:
       return res.status(400).json({ error: `Unknown type: ${type}` });
   }

@@ -2427,7 +2427,7 @@
 
     try {
       const interval = { '1d': '5m', '5d': '15m' }[range] || '1d';
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`);
+      const res = await fetch(`/api/data?type=chart&ticker=${encodeURIComponent(ticker)}&range=${range}&interval=${interval}`);
       const data = await res.json();
       const result = data?.chart?.result?.[0];
       if (!result) throw new Error('No data');
