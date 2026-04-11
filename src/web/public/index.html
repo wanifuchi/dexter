@@ -750,7 +750,7 @@
     <div id="sd-chart" style="width:100%;height:400px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
     <div id="sd-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;font-size:13px"></div>
     <div style="display:flex;gap:8px">
-      <button onclick="analyzeStock(sdState.ticker)" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">チャットで詳細分析</button>
+      <button id="sd-analyze-btn" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">チャットで詳細分析</button>
     </div>
   </div>
 </div>
@@ -2379,6 +2379,7 @@
     document.getElementById('sd-chart').innerHTML = '';
     document.getElementById('stock-detail-overlay').style.display = 'block';
     document.body.style.overflow = 'hidden';
+    document.getElementById('sd-analyze-btn').onclick = () => { closeStockDetail(); analyzeStock(ticker); };
 
     // タブリセット
     document.querySelectorAll('.sd-period-btn').forEach(b => {
