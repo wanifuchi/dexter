@@ -31,6 +31,7 @@ import { jpStockPrice, JP_STOCK_PRICE_DESCRIPTION, isJQuantsAvailable } from './
 import { createJpScreener, JP_SCREENER_DESCRIPTION } from './finance-jp/index.js';
 import { predictionMarketTool, predictionMarketHistoryTool, PREDICTION_MARKET_DESCRIPTION, PREDICTION_MARKET_HISTORY_DESCRIPTION } from './finance/prediction-market.js';
 import { fredTool, FRED_DESCRIPTION } from './finance/fred.js';
+import { newsSentimentTool, NEWS_SENTIMENT_DESCRIPTION } from './finance/sentiment.js';
 
 import { exaSearch, perplexitySearch, tavilySearch, WEB_SEARCH_DESCRIPTION, xSearchTool, X_SEARCH_DESCRIPTION } from './search/index.js';
 import { skillTool, SKILL_TOOL_DESCRIPTION } from './skill.js';
@@ -292,6 +293,15 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       name: 'fred_data',
       tool: fredTool,
       description: FRED_DESCRIPTION,
+    });
+  }
+
+  // === FinBERT ニュースセンチメントツール（HF_API_TOKEN必須） ===
+  if (process.env.HF_API_TOKEN) {
+    tools.push({
+      name: 'news_sentiment',
+      tool: newsSentimentTool,
+      description: NEWS_SENTIMENT_DESCRIPTION,
     });
   }
 
