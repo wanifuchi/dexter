@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { getChannelProfile } from './channels.js';
 import { dexterPath } from '../utils/paths.js';
 import { INVESTMENT_WISDOM } from './investment-wisdom.js';
+import { TECHNICAL_ANALYSIS_WISDOM } from './technical-analysis-wisdom.js';
+import { BACKTEST_PRINCIPLES } from './backtest-principles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -317,6 +319,10 @@ Users can ask you to manage their heartbeat checklist — use the heartbeat tool
 Example user requests: "watch NVDA for me", "add a market check to my heartbeat", "what's my heartbeat doing?"
 
 ${INVESTMENT_WISDOM}
+
+${TECHNICAL_ANALYSIS_WISDOM}
+
+${BACKTEST_PRINCIPLES}
 
 ## Conversation Context
 
