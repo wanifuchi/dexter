@@ -37,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       shares,
       avgCost,
       account: account || 'rakuten-tokutei',
+      addedAt: Date.now(),
     });
     await savePortfolio(portfolio);
     return res.json({ ok: true, ticker: upperTicker, shares, avgCost, account: account || 'rakuten-tokutei', action: 'added' });
