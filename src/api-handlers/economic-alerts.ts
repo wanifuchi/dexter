@@ -1,54 +1,153 @@
 /**
- * 経済指標アラート
- * 主要な経済イベント（FOMC、CPI、雇用統計等）をチェックしてLINE通知
+ * 経済指標アラート（実データ版）
+ *
+ * Finnhub economic calendar APIから実際のイベント日を取得して、
+ * 当日の日本・米国の重要経済指標をLINE通知する。
+ *
+ * 旧版は日付範囲の機械的マッチで誤通知が多発したため、実データに刷新。
+ * 重複防止のため、Redis に日付別の送信フラグを残す。
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sendMessageLine, isLineAvailable } from '../gateway/channels/line/outbound.js';
 
 export const maxDuration = 15;
 
-// 主要経済指標カレンダー（毎月の大まかなスケジュール）
-function getUpcomingEvents(): { name: string; description: string; typical: string }[] {
-  const today = new Date();
-  const day = today.getDate();
-  const dayOfWeek = today.getDay();
+interface CalendarEvent {
+  country: string;
+  event: string;
+  impact: 'low' | 'medium' | 'high';
+  time: string; // "YYYY-MM-DD HH:MM:SS" UTC
+  actual?: number | null;
+  estimate?: number | null;
+  prev?: number | null;
+  unit?: string;
+}
 
-  const events: { name: string; description: string; typical: string }[] = [];
+// Redis（重複通知防止）
+let redisClient: any = null;
+let redisInitialized = false;
+async function getRedis() {
+  if (redisInitialized) return redisClient;
+  redisInitialized = true;
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const { Redis } = await import('@upstash/redis');
+    redisClient = new Redis({ url, token });
+    return redisClient;
+  } catch { return null; }
+}
 
-  // 雇用統計: 毎月第1金曜日
-  if (dayOfWeek === 5 && day <= 7) {
-    events.push({ name: '🇺🇸 米国雇用統計', description: '非農業部門雇用者数・失業率の発表日', typical: '21:30 JST' });
+/**
+ * Finnhub economic calendar API で当日のイベントを取得
+ */
+async function fetchTodayEvents(): Promise<CalendarEvent[]> {
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) return [];
+
+  // JST基準で当日の範囲（UTC換算）
+  const now = new Date();
+  const jstOffset = 9 * 60; // JST is UTC+9
+  const jstNow = new Date(now.getTime() + (jstOffset - now.getTimezoneOffset()) * 60000);
+  const jstToday = jstNow.toISOString().slice(0, 10); // "2026-04-23"
+
+  // UTCでは前日15:00〜当日14:59が「JSTの当日」
+  const fromDate = new Date(`${jstToday}T00:00:00+09:00`).toISOString().slice(0, 10);
+  const toDate = new Date(new Date(`${jstToday}T23:59:59+09:00`).getTime() + 86400000).toISOString().slice(0, 10);
+
+  try {
+    const url = `https://finnhub.io/api/v1/calendar/economic?from=${fromDate}&to=${toDate}&token=${apiKey}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Finx/1.0' } });
+    if (!res.ok) return [];
+    const data = await res.json() as { economicCalendar?: CalendarEvent[] };
+    const events = data.economicCalendar || [];
+
+    // JST当日の範囲でフィルタ（イベント時刻をJSTに変換して判定）
+    return events.filter(e => {
+      if (!e.time) return false;
+      const utcDate = new Date(e.time.replace(' ', 'T') + 'Z');
+      const jstDate = new Date(utcDate.getTime() + 9 * 3600 * 1000);
+      return jstDate.toISOString().slice(0, 10) === jstToday;
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 通知対象の重要イベントだけに絞る
+ * - 米国・日本
+ * - high/medium のみ（low は除外 = PMI一部, Tokyo CPI等）
+ * - ただし high は必ず含める、medium は厳選
+ */
+function filterImportantEvents(events: CalendarEvent[]): CalendarEvent[] {
+  // 重要キーワード（mediumでも通知対象にするもの）
+  const MUST_NOTIFY_KEYWORDS = [
+    'BoJ', 'Bank of Japan', 'Interest Rate', 'Fed ', 'FOMC', 'Press Conference',
+    'CPI', 'Inflation', 'PCE', 'GDP', 'Non Farm', 'Nonfarm', 'Unemployment Rate',
+    'PMI', 'Retail Sales', 'Durable Goods',
+  ];
+
+  return events.filter(e => {
+    if (e.country !== 'US' && e.country !== 'JP') return false;
+    // highは無条件で通知
+    if (e.impact === 'high') return true;
+    // mediumはキーワードマッチするもののみ
+    if (e.impact === 'medium') {
+      return MUST_NOTIFY_KEYWORDS.some(k => e.event.includes(k));
+    }
+    return false;
+  });
+}
+
+/**
+ * イベントをLINEメッセージ用に整形
+ */
+function formatEvents(events: CalendarEvent[]): string {
+  if (events.length === 0) return '';
+
+  const grouped: Record<string, CalendarEvent[]> = { JP: [], US: [] };
+  for (const e of events) {
+    if (grouped[e.country]) grouped[e.country].push(e);
   }
 
-  // CPI: 毎月10-13日頃
-  if (day >= 10 && day <= 13) {
-    events.push({ name: '🇺🇸 消費者物価指数（CPI）', description: 'インフレ指標。FRBの利上げ/利下げ判断に直結', typical: '21:30 JST' });
+  const lines: string[] = [];
+
+  if (grouped.JP.length > 0) {
+    lines.push('🇯🇵 日本');
+    for (const e of grouped.JP) {
+      const jstTime = formatJstTime(e.time);
+      const impact = e.impact === 'high' ? '🔴' : '🟡';
+      const estimate = e.estimate != null ? ` 予想: ${e.estimate}${e.unit || ''}` : '';
+      const prev = e.prev != null ? ` 前回: ${e.prev}${e.unit || ''}` : '';
+      lines.push(`  ${impact} ${jstTime} ${e.event}${estimate}${prev}`);
+    }
   }
 
-  // FOMC: 年8回（1,3,5,6,7,9,11,12月）の第3-4週
-  const fomcMonths = [1, 3, 5, 6, 7, 9, 11, 12];
-  const month = today.getMonth() + 1;
-  if (fomcMonths.includes(month) && day >= 18 && day <= 28) {
-    events.push({ name: '🇺🇸 FOMC政策金利決定', description: 'FRBの金利決定と声明発表。市場最大のイベント', typical: '翌3:00 JST' });
+  if (grouped.US.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push('🇺🇸 米国');
+    for (const e of grouped.US) {
+      const jstTime = formatJstTime(e.time);
+      const impact = e.impact === 'high' ? '🔴' : '🟡';
+      const estimate = e.estimate != null ? ` 予想: ${e.estimate}${e.unit || ''}` : '';
+      const prev = e.prev != null ? ` 前回: ${e.prev}${e.unit || ''}` : '';
+      lines.push(`  ${impact} ${jstTime} ${e.event}${estimate}${prev}`);
+    }
   }
 
-  // PPI: CPI翌日付近
-  if (day >= 11 && day <= 14) {
-    events.push({ name: '🇺🇸 生産者物価指数（PPI）', description: '企業の仕入れ価格。CPIの先行指標', typical: '21:30 JST' });
-  }
+  return lines.join('\n');
+}
 
-  // 小売売上高: 毎月15日前後
-  if (day >= 14 && day <= 17) {
-    events.push({ name: '🇺🇸 小売売上高', description: '個人消費の動向。GDP推定に重要', typical: '21:30 JST' });
+function formatJstTime(utcTimeStr: string): string {
+  try {
+    const utcDate = new Date(utcTimeStr.replace(' ', 'T') + 'Z');
+    const jst = new Date(utcDate.getTime() + 9 * 3600 * 1000);
+    return `${String(jst.getUTCHours()).padStart(2, '0')}:${String(jst.getUTCMinutes()).padStart(2, '0')}`;
+  } catch {
+    return '??:??';
   }
-
-  // 日銀金融政策決定会合: 年8回
-  const bojMonths = [1, 3, 4, 6, 7, 9, 10, 12];
-  if (bojMonths.includes(month) && day >= 17 && day <= 25) {
-    events.push({ name: '🇯🇵 日銀金融政策決定会合', description: '日本の金利政策。円相場に直結', typical: '12:00 JST' });
-  }
-
-  return events;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -59,17 +158,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const events = getUpcomingEvents();
+    const events = await fetchTodayEvents();
+    const important = filterImportantEvents(events);
 
-    if (events.length > 0 && isLineAvailable()) {
-      const dateStr = new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'long', day: 'numeric', weekday: 'short' });
-      const lines = events.map(e => `${e.name}\n  ${e.description}\n  発表予定: ${e.typical}`);
-      await sendMessageLine({
-        body: `📅 本日の経済指標 (${dateStr})\n\n${lines.join('\n\n')}\n\n※ 発表前後は相場が大きく動く可能性があります`,
-      });
+    if (important.length === 0) {
+      return res.json({ status: 'ok', eventsToday: 0, message: 'No important events today' });
     }
 
-    return res.json({ status: 'ok', eventsToday: events.length, events });
+    // 重複通知防止
+    const redis = await getRedis();
+    const jstToday = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const dedupeKey = `finx:economic-alert:${jstToday}`;
+    if (redis) {
+      const alreadySent = await redis.get(dedupeKey);
+      if (alreadySent) {
+        return res.json({ status: 'ok', message: 'Already sent today', eventsToday: important.length });
+      }
+    }
+
+    if (!isLineAvailable()) {
+      return res.json({ status: 'ok', eventsToday: important.length, events: important, warning: 'LINE not available' });
+    }
+
+    const dateStr = new Date().toLocaleDateString('ja-JP', {
+      timeZone: 'Asia/Tokyo', month: 'long', day: 'numeric', weekday: 'short',
+    });
+    const body = `📅 本日の経済指標 (${dateStr})\n\n${formatEvents(important)}\n\n※ 🔴=High / 🟡=Medium。時刻はJST。発表前後は相場が大きく動く可能性があります`;
+
+    await sendMessageLine({ body });
+
+    // 送信済みフラグ（TTL: 25時間）
+    if (redis) {
+      try { await redis.set(dedupeKey, '1', { ex: 25 * 3600 }); } catch {}
+    }
+
+    return res.json({ status: 'ok', eventsToday: important.length, events: important });
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
