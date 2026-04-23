@@ -27,23 +27,9 @@ jobs:
         env:
           FINX_URL: ${{ secrets.FINX_URL }}
 
-  economic-alerts:
-    runs-on: ubuntu-latest
-    if: github.event.schedule == '0 0 * * 1-5' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 2
-    steps:
-      - name: Check economic indicators
-        run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.FINX_URL }}/api/cron/economic-alerts")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-          echo "HTTP $HTTP_CODE"
-          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
-          [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]
-        env:
-          FINX_URL: ${{ secrets.FINX_URL }}
+  # economic-alerts: 無効化 (2026-04-23)
+  # 理由: 日付範囲の機械的マッチでデータが不正確（実際のイベント日を確認せず通知していた）
+  # 再開時は実データベース（Finnhub economic calendar等）に差し替えてから workflow_dispatch で起動
 
   weekly-report:
     runs-on: ubuntu-latest
