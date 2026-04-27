@@ -112,20 +112,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       tickerList = [...tickers];
     }
 
-    // Finnhub /calendar/earnings で一括取得（API call 1回で全銘柄カバー）
+    // Finnhub /calendar/earnings で一括取得
     const results = await fetchPortfolioEarnings(tickerList);
 
     // 7日以内の決算
     const upcoming = results.filter(r => r.daysUntil !== null && r.daysUntil >= 0 && r.daysUntil <= 7);
 
-    if (upcoming.length > 0 && isLineAvailable()) {
-      const lines = upcoming.map(e => {
-        const urgency = e.daysUntil === 0 ? '🔴 今日' : e.daysUntil === 1 ? '🟡 明日' : `📅 ${e.daysUntil}日後`;
-        return `${urgency} ${e.ticker} — ${e.earningsDate}`;
-      });
-      await sendMessageLine({
-        body: `📊 決算アラート\n\n${lines.join('\n')}\n\n決算前後は株価が大きく動く可能性があります。ポジション管理に注意してください。`,
-      });
+    // LINE通知判定:
+    // - フロント (isFromDataApi=true) からの呼び出しでは絶対に送らない
+    // - cronからの呼び出しでも重複防止（24h以内に同じ内容を送らない）
+    if (!isFromDataApi && upcoming.length > 0 && isLineAvailable()) {
+      const dedupeOk = await checkLineDedupe(upcoming);
+      if (dedupeOk) {
+        const lines = upcoming.map(e => {
+          const urgency = e.daysUntil === 0 ? '🔴 今日' : e.daysUntil === 1 ? '🟡 明日' : `📅 ${e.daysUntil}日後`;
+          return `${urgency} ${e.ticker} — ${e.earningsDate}`;
+        });
+        await sendMessageLine({
+          body: `📊 決算アラート\n\n${lines.join('\n')}\n\n決算前後は株価が大きく動く可能性があります。ポジション管理に注意してください。`,
+        });
+      }
     }
 
     return res.json({
@@ -135,5 +141,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/**
+ * LINE通知の重複防止: 24h以内に同じ「決算予定リスト」を送ったかチェック
+ * 同じならfalse（送らない）、新しい内容ならtrue（送って記録）
+ */
+async function checkLineDedupe(upcoming: EarningsInfo[]): Promise<boolean> {
+  try {
+    const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_KV_REST_API_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
+    if (!url || !token) return true; // Redis未設定なら防止できないので送る
+
+    const { Redis } = await import('@upstash/redis');
+    const redis = new Redis({ url, token });
+
+    // 通知内容のハッシュキー（保有銘柄のセットが変わると別判定）
+    const fingerprint = upcoming
+      .map(e => `${e.ticker}:${e.earningsDate}`)
+      .sort()
+      .join('|');
+    const dedupeKey = `finx:earnings-alert:${fingerprint}`;
+
+    const exists = await redis.get(dedupeKey);
+    if (exists) return false;
+
+    // 25時間TTLで記録
+    await redis.set(dedupeKey, '1', { ex: 25 * 3600 });
+    return true;
+  } catch {
+    return true; // Redis失敗時は送る
   }
 }
