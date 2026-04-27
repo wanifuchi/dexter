@@ -52,7 +52,10 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
     const meta = result.meta ?? {};
     const closes: number[] = (result.indicators?.quote?.[0]?.close ?? []).filter((c: any) => c !== null);
     const price = meta.regularMarketPrice ?? closes[closes.length - 1];
-    const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
+    // 日次変動の基準値: closes配列の最後から2番目（前営業日終値）を最優先
+    // meta.chartPreviousClose は range=3mo の場合「3ヶ月前」の値を返すため使えない
+    // meta.previousClose も提供されない場合があるため、closes配列を信頼する
+    const previousClose = closes[closes.length - 2] ?? meta.previousClose ?? meta.chartPreviousClose;
 
     return {
       ticker,
