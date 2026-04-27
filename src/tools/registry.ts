@@ -32,6 +32,7 @@ import { createJpScreener, JP_SCREENER_DESCRIPTION } from './finance-jp/index.js
 import { predictionMarketTool, predictionMarketHistoryTool, PREDICTION_MARKET_DESCRIPTION, PREDICTION_MARKET_HISTORY_DESCRIPTION } from './finance/prediction-market.js';
 import { fredTool, FRED_DESCRIPTION } from './finance/fred.js';
 import { newsSentimentTool, NEWS_SENTIMENT_DESCRIPTION } from './finance/sentiment.js';
+import { congressTradingTool, insiderTradingTool, CONGRESS_TRADING_DESCRIPTION, INSIDER_TRADING_DESCRIPTION } from './finance/political-insider.js';
 
 import { exaSearch, perplexitySearch, tavilySearch, WEB_SEARCH_DESCRIPTION, xSearchTool, X_SEARCH_DESCRIPTION } from './search/index.js';
 import { skillTool, SKILL_TOOL_DESCRIPTION } from './skill.js';
@@ -302,6 +303,24 @@ export function getToolRegistry(model: string): RegisteredTool[] {
       name: 'news_sentiment',
       tool: newsSentimentTool,
       description: NEWS_SENTIMENT_DESCRIPTION,
+    });
+  }
+
+  // === 議員取引ツール（FMP_API_KEY必須） ===
+  if (process.env.FMP_API_KEY) {
+    tools.push({
+      name: 'congress_trading',
+      tool: congressTradingTool,
+      description: CONGRESS_TRADING_DESCRIPTION,
+    });
+  }
+
+  // === 内部者取引ツール（FINNHUB_API_KEY必須） ===
+  if (process.env.FINNHUB_API_KEY) {
+    tools.push({
+      name: 'insider_trading',
+      tool: insiderTradingTool,
+      description: INSIDER_TRADING_DESCRIPTION,
     });
   }
 
