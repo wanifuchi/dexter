@@ -99,6 +99,76 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(502).json({ error: 'Failed to fetch chart data' });
       }
     }
+    case 'smart-money': {
+      // 議員取引 + 内部者取引（FMP + Finnhub）
+      const ticker = (req.query.ticker as string)?.toUpperCase();
+      if (!ticker) return res.status(400).json({ error: 'ticker is required' });
+      const fmpKey = process.env.FMP_API_KEY;
+      const finnhubKey = process.env.FINNHUB_API_KEY;
+      try {
+        const promises: Promise<any>[] = [];
+        // Senate
+        promises.push(fmpKey
+          ? fetch(`https://financialmodelingprep.com/stable/senate-trades?symbol=${ticker}&apikey=${fmpKey}`).then(r => r.ok ? r.json() : []).catch(() => [])
+          : Promise.resolve([]));
+        // House
+        promises.push(fmpKey
+          ? fetch(`https://financialmodelingprep.com/stable/house-trades?symbol=${ticker}&apikey=${fmpKey}`).then(r => r.ok ? r.json() : []).catch(() => [])
+          : Promise.resolve([]));
+        // Insider
+        promises.push(finnhubKey
+          ? fetch(`https://finnhub.io/api/v1/stock/insider-transactions?symbol=${ticker}&token=${finnhubKey}`).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }));
+
+        const [senate, house, insider] = await Promise.all(promises);
+        const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+
+        // 議員: buy/sell カウント（直近90日）
+        const congressTrades = [...(Array.isArray(senate) ? senate : []), ...(Array.isArray(house) ? house : [])];
+        let congressBuys = 0, congressSells = 0;
+        for (const t of congressTrades) {
+          if ((t.transactionDate ?? '') < ninetyDaysAgo) continue;
+          if (/Purchase/i.test(t.type ?? '')) congressBuys++;
+          else if (/Sale/i.test(t.type ?? '')) congressSells++;
+        }
+
+        // 内部者: open marketのP/Sを集計（直近90日）
+        const insiderData = (insider?.data ?? []) as Array<{ filingDate?: string; transactionCode?: string; change?: number; transactionPrice?: number }>;
+        let insiderBuys = 0, insiderSells = 0;
+        let buyValue = 0, sellValue = 0;
+        for (const t of insiderData) {
+          if ((t.filingDate ?? '') < ninetyDaysAgo) continue;
+          const code = (t.transactionCode || '').toUpperCase();
+          const change = Math.abs(t.change ?? 0);
+          const value = change * (t.transactionPrice ?? 0);
+          if (code === 'P') { insiderBuys++; buyValue += value; }
+          else if (code === 'S') { insiderSells++; sellValue += value; }
+        }
+        const netInsiderValue = buyValue - sellValue;
+
+        return res.json({
+          ticker,
+          congress: {
+            total90d: congressBuys + congressSells,
+            buys: congressBuys,
+            sells: congressSells,
+            sentiment: congressBuys > congressSells * 1.5 ? 'bullish' : congressSells > congressBuys * 1.5 ? 'bearish' : 'neutral',
+          },
+          insider: {
+            total90d: insiderBuys + insiderSells,
+            openMarketBuys: insiderBuys,
+            openMarketSells: insiderSells,
+            netValueUsd: Math.round(netInsiderValue),
+            sentiment: insiderBuys > 0 && netInsiderValue > 0 ? 'bullish'
+              : insiderSells > insiderBuys * 2 ? 'bearish'
+              : insiderBuys === 0 && insiderSells > 5 ? 'caution'
+              : 'neutral',
+          },
+        });
+      } catch (e) {
+        return res.status(502).json({ error: 'Failed to fetch smart money data' });
+      }
+    }
     default:
       return res.status(400).json({ error: `Unknown type: ${type}` });
   }

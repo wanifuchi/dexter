@@ -749,6 +749,7 @@
     </div>
     <div id="sd-chart" style="width:100%;height:400px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
     <div id="sd-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;font-size:13px"></div>
+    <div id="sd-smart-money" style="margin-bottom:16px;font-size:13px;color:var(--text-muted)">スマートマネー読み込み中...</div>
     <div style="display:flex;gap:8px">
       <button id="sd-analyze-btn" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">チャットで詳細分析</button>
     </div>
@@ -2001,6 +2002,14 @@
       pcState.pnl = (pcState.currentPrice - pcState.avgCost) * pcState.shares;
       pcState.pnlPct = pcState.avgCost > 0 ? ((pcState.currentPrice - pcState.avgCost) / pcState.avgCost) * 100 : 0;
 
+      // 内部者シグナル取得（米国株のみ、認証不要API）
+      pcState.insiderSignal = null;
+      try {
+        const smRes = await fetch(`/api/data?type=smart-money&ticker=${encodeURIComponent(ticker)}`);
+        const smData = await smRes.json();
+        if (smData?.insider) pcState.insiderSignal = smData.insider;
+      } catch {}
+
       renderProfitCheck();
     } catch (e) {
       const content = document.getElementById('pc-content');
@@ -2011,9 +2020,29 @@
   function renderPcSummary(content) {
     const pnlColor = pcState.pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const sign = pcState.pnl >= 0 ? '+' : '';
+
+    // 内部者シグナル表示
+    let insiderHtml = '';
+    const ins = pcState.insiderSignal;
+    if (ins && ins.total90d > 0) {
+      const sentColor = ins.sentiment === 'bullish' ? 'var(--green)'
+        : ins.sentiment === 'bearish' ? 'var(--red)'
+        : ins.sentiment === 'caution' ? '#f59e0b' : 'var(--text-muted)';
+      const sentLabel = ins.sentiment === 'bullish' ? '🟢 買い優勢'
+        : ins.sentiment === 'bearish' ? '🔴 売り優勢'
+        : ins.sentiment === 'caution' ? '🟡 売り中心（要注意）' : '⚪ 中立';
+      insiderHtml = `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px">
+          <div style="font-weight:600;margin-bottom:4px">👔 内部者シグナル（90日）</div>
+          <div style="color:var(--text-muted)">買い ${ins.openMarketBuys}件 / 売り ${ins.openMarketSells}件 / Net ${ins.netValueUsd >= 0 ? '+' : '-'}$${(Math.abs(ins.netValueUsd)/1e6).toFixed(1)}M</div>
+          <div style="margin-top:4px;color:${sentColor};font-weight:600">${sentLabel}</div>
+        </div>
+      `;
+    }
+
     content.innerHTML = `
       ${pcBackButton('select')}
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:16px">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:12px">
         <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escapeHtml(pcState.ticker)}</div>
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${escapeHtml(pcState.name)} · ${escapeHtml(pcState.account)}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
@@ -2023,6 +2052,7 @@
           <div><span style="color:var(--text-muted)">含み損益</span><br><span style="font-weight:600;color:${pnlColor}">${sign}$${Math.abs(pcState.pnl).toFixed(2)} (${sign}${pcState.pnlPct.toFixed(2)}%)</span></div>
         </div>
       </div>
+      ${insiderHtml}
       <div style="text-align:center">
         <button onclick="pcGoStep('q1')" style="padding:10px 32px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">利確判定を開始</button>
       </div>
@@ -2149,104 +2179,155 @@
     `;
   }
 
-  // === 判定ロジック（rumaトレード理論ベース） ===
+  // === 判定ロジック（rumaトレード理論ベース + 内部者シグナル補助） ===
   function pcDecide() {
     const a = pcState.answers;
+    const ins = pcState.insiderSignal;
 
-    // ケース1: シナリオ崩壊 → 全部利確（撤退）
+    // 内部者シグナルからの補足コメント生成
+    const insiderNote = (() => {
+      if (!ins || ins.total90d === 0) return '';
+      if (ins.sentiment === 'bearish') {
+        return `\n\n⚠️ **内部者シグナル:** 直近90日で内部者（経営陣等）が${ins.openMarketSells}件売り、買い${ins.openMarketBuys}件、ネット$${(Math.abs(ins.netValueUsd)/1e6).toFixed(1)}M売り超。判定は「売り寄り」に補正される根拠材料。`;
+      }
+      if (ins.sentiment === 'caution') {
+        return `\n\n🟡 **内部者シグナル:** 直近90日で内部者の売りが${ins.openMarketSells}件、買い0件。要注意材料。`;
+      }
+      if (ins.sentiment === 'bullish') {
+        return `\n\n💎 **内部者シグナル:** 直近90日で内部者がネット$${(Math.abs(ins.netValueUsd)/1e6).toFixed(1)}M買い超。判定が「保有継続寄り」になる根拠材料。`;
+      }
+      return '';
+    })();
+
+    // 判定本体の前にinsider boostを適用
+    // - bearish/caution: 「保有継続」判定を「半分利確」に格下げ
+    // - bullish: 「全部利確」判定を「半分利確」に緩和（ホールド意欲）
+    const insiderBoost = (decision) => {
+      if (!ins || ins.total90d === 0) return decision;
+
+      // 保有継続 + 内部者bearish → 半分利確に格下げ
+      if (decision.label.includes('保有継続') && (ins.sentiment === 'bearish' || ins.sentiment === 'caution')) {
+        return {
+          label: '半分利確（内部者シグナル警戒）',
+          icon: '⚖️',
+          color: '#f59e0b',
+          reason: decision.reason + '\n\nただし内部者が売り中心のため、保有継続のリスクが高まっています。半分利確して保険をかけることを推奨。',
+          action: `${Math.floor(pcState.shares / 2)}株を利確、残り${pcState.shares - Math.floor(pcState.shares / 2)}株は警戒しつつ保有。${insiderNote}`,
+        };
+      }
+
+      // 全部利確 + 内部者bullish → 半分利確に緩和（ただしシナリオ崩壊系はそのまま）
+      if (decision.label === '全部利確' && ins.sentiment === 'bullish') {
+        return {
+          label: '半分利確（内部者は強気）',
+          icon: '⚖️',
+          color: 'var(--green)',
+          reason: decision.reason + '\n\nただし内部者がネット買い超なので、完全撤退ではなく半分残してアップサイドを取る選択肢もあります。',
+          action: `${Math.floor(pcState.shares / 2)}株を利確、残り${pcState.shares - Math.floor(pcState.shares / 2)}株を保有継続（内部者買い超を根拠）。${insiderNote}`,
+        };
+      }
+
+      // それ以外は note を末尾に追記するだけ
+      return {
+        ...decision,
+        reason: decision.reason + insiderNote,
+      };
+    };
+
+    // ケース1: シナリオ崩壊 → 全部利確（撤退、内部者シグナル無関係）
     if (a.thesisIntact === 'no') {
       return {
         label: '全部利確（撤退）',
         icon: '🚪',
         color: 'var(--red)',
-        reason: 'エントリー時のシナリオが崩れています。前提が崩壊した時点で、含み益の有無に関わらず撤退するのが正解です。「想定外の動きが起きたら降りる」は設計の基本。',
+        reason: 'エントリー時のシナリオが崩れています。前提が崩壊した時点で、含み益の有無に関わらず撤退するのが正解です。「想定外の動きが起きたら降りる」は設計の基本。' + insiderNote,
         action: `${pcState.shares}株すべてを成行または近めの指値で決済する。`,
       };
     }
 
     // ケース2: 逆ポジ可能 + 戦略一致 → 全部利確
     if (a.reverseEntry === 'yes' && a.atTarget === 'yes') {
-      return {
+      return insiderBoost({
         label: '全部利確',
         icon: '✅',
         color: 'var(--green)',
         reason: '逆ポジ質問にYES、かつ事前に決めた利確ラインに到達しています。これは設計通りの「正解の利確」です。神利確を狙わず、ここで降りるのが上手いトレードです。',
         action: `${pcState.shares}株を成行または現値付近で決済。事前に決めた場所で降りられたことを評価する。`,
-      };
+      });
     }
 
     // ケース3: 逆ポジ可能 + ターゲット未到達 → 半分利確（50/50決済）
     if (a.reverseEntry === 'yes' && a.atTarget === 'no') {
-      return {
+      return insiderBoost({
         label: '半分利確（50/50決済）',
         icon: '⚖️',
         color: '#f59e0b',
         reason: '逆ポジ質問にYES（売りで入れる根拠あり）だが、事前の利確ラインには未到達。感情と理屈が割れているケースです。50/50決済で半分利確し、残り半分を理屈に預けましょう。',
         action: `${Math.floor(pcState.shares / 2)}株を利確、残り${pcState.shares - Math.floor(pcState.shares / 2)}株を保有継続。`,
-      };
+      });
     }
 
     // ケース4: 逆ポジ不可 + ターゲット到達 → 半分利確 or 保有
     if (a.reverseEntry === 'no' && a.atTarget === 'yes') {
       if (a.strategy === 'trend') {
-        return {
+        return insiderBoost({
           label: '保有継続（トレンド狙い）',
           icon: '📈',
           color: 'var(--green)',
           reason: 'トレンド狙い + 逆方向に入る根拠なし。事前ラインに来ていても、トレンドが生きているなら直近高値更新まで取りに行くのが筋。「もったいない利確」を避けるべきケース。',
           action: '保有継続。利確ラインを次の節目に引き上げる（トレーリングストップを検討）。',
-        };
+        });
       }
-      return {
+      return insiderBoost({
         label: '全部利確',
         icon: '✅',
         color: 'var(--green)',
         reason: 'レンジ狙い + 利確ラインに到達。レンジ内では「ほどほどで手堅く」が正解です。高値超えを期待して粘るのはただの願望。',
         action: `${pcState.shares}株を決済する。`,
-      };
+      });
     }
 
     // ケース5: 逆ポジ不可 + ターゲット未到達 → 保有継続
     if (a.reverseEntry === 'no' && a.atTarget === 'no') {
-      return {
+      return insiderBoost({
         label: '保有継続',
         icon: '🤝',
         color: 'var(--green)',
         reason: '売りで入る根拠もなく、事前の利確ラインにも未到達。今利確したくなっているのは「不安が1.8倍に肥大化」している状態です。根拠で入ったなら根拠で降りる。感情で降りない。',
         action: '保有継続。次に投げる質問は「シナリオが崩れる条件」を再確認すること。',
-      };
+      });
     }
 
     // ケース6: 利確ライン未設定
     if (a.atTarget === 'no-target') {
-      return {
+      return insiderBoost({
         label: '半分利確 + 設計やり直し',
         icon: '⚠️',
         color: '#f59e0b',
         reason: '事前に利確ラインを決めていなかったケース。「設計なき保有」は感情で動く原因です。半分だけ利確して落ち着き、残り半分のための利確ラインを今すぐ決めてください。',
         action: `${Math.floor(pcState.shares / 2)}株を利確。残り${pcState.shares - Math.floor(pcState.shares / 2)}株について、トレンド狙いなら直近高値、レンジ狙いならレンジ上限を利確ラインに設定する。`,
-      };
+      });
     }
 
     // ケース7: 戦略未決定
     if (a.strategy === 'unclear') {
-      return {
+      return insiderBoost({
         label: '一旦半分利確 + 戦略確定',
         icon: '⚠️',
         color: '#f59e0b',
         reason: '戦略を決めずに保有していたケース。利確判断がブレる根本原因です。まず半分利確してリスクを下げ、残り半分について「トレンド狙いか、レンジ狙いか」を今この瞬間に決めてください。',
         action: `${Math.floor(pcState.shares / 2)}株を利確。残りについて戦略を確定し、利確ラインを設定する。`,
-      };
+      });
     }
 
     // ケース8: シナリオ判断不能
-    return {
+    return insiderBoost({
       label: '判断保留 + 情報追加',
       icon: '🤔',
       color: '#6b7280',
       reason: 'シナリオの状態が判断できないケース。今は決断のタイミングではありません。チャート・直近ニュース・出来高を見直してから再判定してください。',
       action: 'チャットでこの銘柄を分析してから、もう一度この判定を行う。',
-    };
+    });
   }
 
   // === ユーティリティ ===
@@ -2377,6 +2458,7 @@
     document.getElementById('sd-change').textContent = '';
     document.getElementById('sd-stats').innerHTML = '';
     document.getElementById('sd-chart').innerHTML = '';
+    document.getElementById('sd-smart-money').innerHTML = 'スマートマネー読み込み中...';
     document.getElementById('stock-detail-overlay').style.display = 'block';
     document.body.style.overflow = 'hidden';
     document.getElementById('sd-analyze-btn').onclick = () => { closeStockDetail(); analyzeStock(ticker); };
@@ -2396,6 +2478,45 @@
     document.querySelectorAll('.sd-type-btn')[0].style.borderColor = 'var(--accent)';
 
     await loadStockChart(ticker, '1mo');
+    loadSmartMoney(ticker);
+  }
+
+  async function loadSmartMoney(ticker) {
+    const el = document.getElementById('sd-smart-money');
+    if (!el) return;
+    try {
+      const res = await fetch(`/api/data?type=smart-money&ticker=${encodeURIComponent(ticker)}`);
+      const d = await res.json();
+      if (d.error) { el.innerHTML = ''; return; }
+
+      const sentLabel = (s) => {
+        if (s === 'bullish') return '<span style="color:var(--green)">🟢 買い優勢</span>';
+        if (s === 'bearish') return '<span style="color:var(--red)">🔴 売り優勢</span>';
+        if (s === 'caution') return '<span style="color:#f59e0b">🟡 売り中心（要注意）</span>';
+        return '<span style="color:var(--text-muted)">⚪ 中立</span>';
+      };
+
+      const c = d.congress || {};
+      const i = d.insider || {};
+      const fmtUsdM = (v) => v >= 0 ? `+$${(v/1e6).toFixed(1)}M` : `-$${(Math.abs(v)/1e6).toFixed(1)}M`;
+
+      el.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">🏛️ 議員取引（90日）</div>
+            <div style="font-size:11px;color:var(--text-muted)">買い ${c.buys || 0} / 売り ${c.sells || 0}</div>
+            <div style="margin-top:4px">${sentLabel(c.sentiment)}</div>
+          </div>
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">👔 内部者取引（90日）</div>
+            <div style="font-size:11px;color:var(--text-muted)">買い ${i.openMarketBuys || 0} / 売り ${i.openMarketSells || 0} / Net ${fmtUsdM(i.netValueUsd || 0)}</div>
+            <div style="margin-top:4px">${sentLabel(i.sentiment)}</div>
+          </div>
+        </div>
+      `;
+    } catch {
+      el.innerHTML = '';
+    }
   }
 
   function closeStockDetail() {
