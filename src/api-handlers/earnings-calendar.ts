@@ -1,6 +1,9 @@
 /**
- * 決算日カレンダー
+ * 決算日カレンダー（Finnhub economic calendar API版）
  * 保有銘柄の次回決算日をチェックし、1週間以内ならLINE通知
+ *
+ * 旧Yahoo Finance v8 chart `events=earnings` は実質空データを返すことが多いため、
+ * Finnhub /calendar/earnings に切り替え（1500件/60日の確実なデータ）
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { loadPortfolio } from '../tools/trading/portfolio-store.js';
@@ -13,42 +16,73 @@ interface EarningsInfo {
   ticker: string;
   earningsDate: string | null;
   daysUntil: number | null;
+  hour?: string;          // 'bmo' (寄り前) | 'amc' (引け後) | ''
+  epsEstimate?: number | null;
+  revenueEstimate?: number | null;
 }
 
-async function fetchEarningsDate(ticker: string): Promise<EarningsInfo> {
+interface FinnhubEarning {
+  symbol: string;
+  date: string;
+  hour: string;
+  epsEstimate: number | null;
+  revenueEstimate: number | null;
+  quarter: number;
+  year: number;
+}
+
+/**
+ * Finnhub /calendar/earnings から保有銘柄の決算予定を一括取得
+ */
+async function fetchPortfolioEarnings(tickers: string[]): Promise<EarningsInfo[]> {
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey || tickers.length === 0) {
+    return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
+  }
+
+  // 今日から60日先まで
+  const from = new Date().toISOString().slice(0, 10);
+  const to = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+
   try {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=1&newsCount=0`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!res.ok) return { ticker, earningsDate: null, daysUntil: null };
+    const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${apiKey}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Finx/1.0' } });
+    if (!res.ok) {
+      return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
+    }
+    const data = await res.json() as { earningsCalendar?: FinnhubEarning[] };
+    const all = data.earningsCalendar ?? [];
 
-    // Yahoo Finance search doesn't give earnings dates directly,
-    // so we use the chart API with events=earnings
-    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=3mo&interval=1d&events=earnings`;
-    const chartRes = await fetch(chartUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!chartRes.ok) return { ticker, earningsDate: null, daysUntil: null };
+    // ティッカーごとに最も近い決算日を抽出
+    const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
+    const byTicker: Record<string, FinnhubEarning[]> = {};
+    for (const e of all) {
+      const t = (e.symbol ?? '').toUpperCase();
+      if (!tickerSet.has(t)) continue;
+      if (!byTicker[t]) byTicker[t] = [];
+      byTicker[t].push(e);
+    }
 
-    const json = await chartRes.json() as any;
-    const earnings = json?.chart?.result?.[0]?.events?.earnings;
-    if (!earnings) return { ticker, earningsDate: null, daysUntil: null };
-
-    // 未来の決算日を探す
-    const now = Date.now() / 1000;
-    const futureEarnings = Object.values(earnings)
-      .filter((e: any) => e.date > now)
-      .sort((a: any, b: any) => a.date - b.date) as any[];
-
-    if (futureEarnings.length === 0) return { ticker, earningsDate: null, daysUntil: null };
-
-    const nextDate = new Date(futureEarnings[0].date * 1000);
-    const daysUntil = Math.ceil((nextDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-
-    return {
-      ticker,
-      earningsDate: nextDate.toISOString().split('T')[0],
-      daysUntil,
-    };
+    return tickers.map(rawTicker => {
+      const t = rawTicker.toUpperCase();
+      const events = (byTicker[t] ?? []).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+      if (events.length === 0) {
+        return { ticker: rawTicker, earningsDate: null, daysUntil: null };
+      }
+      const nextEvent = events[0];
+      const nextDate = new Date(nextEvent.date + 'T12:00:00Z');
+      const daysUntil = Math.ceil((nextDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      return {
+        ticker: rawTicker,
+        earningsDate: nextEvent.date,
+        daysUntil,
+        hour: nextEvent.hour || '',
+        epsEstimate: nextEvent.epsEstimate,
+        revenueEstimate: nextEvent.revenueEstimate,
+      };
+    });
   } catch {
-    return { ticker, earningsDate: null, daysUntil: null };
+    return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
   }
 }
 
@@ -64,21 +98,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const [portfolio, watchlist] = await Promise.all([loadPortfolio(), loadWatchlist()]);
-    const tickers = new Set<string>();
-    for (const p of portfolio.positions) tickers.add(p.ticker);
-    for (const w of watchlist.items) tickers.add(w.ticker);
+    // クエリでtickers指定があればそれを使う（フロントから直接呼ばれた場合）
+    const queryTickers = (req.query?.tickers as string)?.split(',').filter(Boolean);
+    let tickerList: string[];
 
-    if (tickers.size === 0) return res.json({ status: 'ok', message: 'No tickers' });
-
-    // バッチで取得
-    const results: EarningsInfo[] = [];
-    const tickerList = [...tickers];
-    for (let i = 0; i < tickerList.length; i += 5) {
-      const batch = tickerList.slice(i, i + 5);
-      const batchResults = await Promise.all(batch.map(fetchEarningsDate));
-      results.push(...batchResults);
+    if (queryTickers && queryTickers.length > 0) {
+      tickerList = queryTickers;
+    } else {
+      const [portfolio, watchlist] = await Promise.all([loadPortfolio(), loadWatchlist()]);
+      const tickers = new Set<string>();
+      for (const p of portfolio.positions) tickers.add(p.ticker);
+      for (const w of watchlist.items) tickers.add(w.ticker);
+      if (tickers.size === 0) return res.json({ status: 'ok', message: 'No tickers' });
+      tickerList = [...tickers];
     }
+
+    // Finnhub /calendar/earnings で一括取得（API call 1回で全銘柄カバー）
+    const results = await fetchPortfolioEarnings(tickerList);
 
     // 7日以内の決算
     const upcoming = results.filter(r => r.daysUntil !== null && r.daysUntil >= 0 && r.daysUntil <= 7);
