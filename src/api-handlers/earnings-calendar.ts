@@ -32,58 +32,57 @@ interface FinnhubEarning {
 }
 
 /**
- * Finnhub /calendar/earnings から保有銘柄の決算予定を一括取得
+ * 単一ティッカーの次の決算日をFinnhubから取得
+ *
+ * 注意: 一括取得（symbol指定なし）は1500件上限で範囲が後ろから切られる問題があるため、
+ * symbol指定で個別取得する方式に変更
  */
-async function fetchPortfolioEarnings(tickers: string[]): Promise<EarningsInfo[]> {
+async function fetchEarningsForTicker(ticker: string): Promise<EarningsInfo> {
   const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey || tickers.length === 0) {
-    return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
-  }
+  if (!apiKey) return { ticker, earningsDate: null, daysUntil: null };
 
-  // 今日から60日先まで
   const from = new Date().toISOString().slice(0, 10);
   const to = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
 
   try {
-    const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${apiKey}`;
+    const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&symbol=${encodeURIComponent(ticker)}&token=${apiKey}`;
     const res = await fetch(url, { headers: { 'User-Agent': 'Finx/1.0' } });
-    if (!res.ok) {
-      return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
-    }
+    if (!res.ok) return { ticker, earningsDate: null, daysUntil: null };
+
     const data = await res.json() as { earningsCalendar?: FinnhubEarning[] };
-    const all = data.earningsCalendar ?? [];
+    const events = (data.earningsCalendar ?? []).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+    if (events.length === 0) return { ticker, earningsDate: null, daysUntil: null };
 
-    // ティッカーごとに最も近い決算日を抽出
-    const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
-    const byTicker: Record<string, FinnhubEarning[]> = {};
-    for (const e of all) {
-      const t = (e.symbol ?? '').toUpperCase();
-      if (!tickerSet.has(t)) continue;
-      if (!byTicker[t]) byTicker[t] = [];
-      byTicker[t].push(e);
-    }
+    const nextEvent = events[0];
+    const nextDate = new Date(nextEvent.date + 'T12:00:00Z');
+    const daysUntil = Math.ceil((nextDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
 
-    return tickers.map(rawTicker => {
-      const t = rawTicker.toUpperCase();
-      const events = (byTicker[t] ?? []).sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
-      if (events.length === 0) {
-        return { ticker: rawTicker, earningsDate: null, daysUntil: null };
-      }
-      const nextEvent = events[0];
-      const nextDate = new Date(nextEvent.date + 'T12:00:00Z');
-      const daysUntil = Math.ceil((nextDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-      return {
-        ticker: rawTicker,
-        earningsDate: nextEvent.date,
-        daysUntil,
-        hour: nextEvent.hour || '',
-        epsEstimate: nextEvent.epsEstimate,
-        revenueEstimate: nextEvent.revenueEstimate,
-      };
-    });
+    return {
+      ticker,
+      earningsDate: nextEvent.date,
+      daysUntil,
+      hour: nextEvent.hour || '',
+      epsEstimate: nextEvent.epsEstimate,
+      revenueEstimate: nextEvent.revenueEstimate,
+    };
   } catch {
-    return tickers.map(t => ({ ticker: t, earningsDate: null, daysUntil: null }));
+    return { ticker, earningsDate: null, daysUntil: null };
   }
+}
+
+/**
+ * 複数銘柄の決算予定を並列取得（Finnhub 1500件上限を回避）
+ */
+async function fetchPortfolioEarnings(tickers: string[]): Promise<EarningsInfo[]> {
+  if (tickers.length === 0) return [];
+  // 5並列で実行（rate limit対策）
+  const results: EarningsInfo[] = [];
+  for (let i = 0; i < tickers.length; i += 5) {
+    const batch = tickers.slice(i, i + 5);
+    const batchResults = await Promise.all(batch.map(fetchEarningsForTicker));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
