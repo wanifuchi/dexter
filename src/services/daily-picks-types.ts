@@ -13,6 +13,7 @@ export type DailyPicksRequest = {
 
 export type Catalyst = {
   title: string;
+  titleJa?: string;  // 日本語訳（Google翻訳）
   url: string;
 };
 

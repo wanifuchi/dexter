@@ -108,6 +108,26 @@ async function fetchQuote(ticker: string): Promise<{ price: number; changePct: n
   } catch { return null; }
 }
 
+/**
+ * Google翻訳の無料エンドポイントで英→日翻訳
+ * （公式APIキー不要、レート制限あり）
+ */
+async function translateToJa(text: string): Promise<string | null> {
+  if (!text) return null;
+  // 日本語が既に含まれていれば翻訳不要
+  if (/[぀-ゟ゠-ヿ一-龯]/.test(text)) return null;
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ja&dt=t&q=${encodeURIComponent(text.slice(0, 500))}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) return null;
+    const data = await res.json() as any[];
+    // [[[ "translated", "original", null, null, ...], ...], ...]
+    const segments = data?.[0];
+    if (!Array.isArray(segments)) return null;
+    return segments.map((s: any) => s?.[0] || '').join('').trim() || null;
+  } catch { return null; }
+}
+
 async function fetchNews(ticker: string): Promise<Catalyst[]> {
   const catalysts: Catalyst[] = [];
 
@@ -129,6 +149,16 @@ async function fetchNews(ticker: string): Promise<Catalyst[]> {
       }
     }
   } catch {}
+
+  // 日本語訳を並列で取得（失敗してもtitleはそのまま使われる）
+  if (catalysts.length > 0) {
+    const translations = await Promise.all(
+      catalysts.map(c => translateToJa(c.title))
+    );
+    catalysts.forEach((c, i) => {
+      if (translations[i]) c.titleJa = translations[i] as string;
+    });
+  }
 
   return catalysts;
 }
