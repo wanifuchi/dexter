@@ -836,6 +836,7 @@
               <tr>
                 <th>銘柄</th>
                 <th>株数</th>
+                <th class="hide-mobile">取得単価</th>
                 <th>現在値</th>
                 <th>損益率</th>
                 <th>日次</th>
@@ -3329,9 +3330,12 @@
         const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
         smaHtml = `<span class="${pnlClass(diff)}">${fmtPct(diff)}</span>`;
       }
+      const costStep = jp ? '1' : '0.01';
+      const costValue = jp ? Math.round(p.avgCost) : p.avgCost.toFixed(2);
       return `<tr>
         <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="showStockDetail('${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
         <td><input type="number" min="0" value="${p.shares}" data-ticker="${p.ticker}" data-account="${p.account}" data-avg-cost="${p.avgCost}" data-price="${p.currentPrice ?? ''}" class="shares-input" onchange="updateShares(this)" onfocus="this.select()" style="width:60px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
+        <td class="hide-mobile"><input type="number" min="0" step="${costStep}" value="${costValue}" data-ticker="${p.ticker}" data-account="${p.account}" data-shares="${p.shares}" data-price="${p.currentPrice ?? ''}" class="cost-input" onchange="updateAvgCost(this)" onfocus="this.select()" style="width:80px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
         <td>${price}</td>
         <td>${pnlPct}</td>
         <td>${day}</td>
@@ -3391,6 +3395,55 @@
     } catch (e) {
       input.style.borderColor = '#ef4444';
       console.error('株数更新エラー:', e);
+      setTimeout(() => { input.style.borderColor = 'var(--border)'; }, 2000);
+    } finally {
+      input.disabled = false;
+    }
+  }
+
+  // --- 取得単価編集・再計算 ---
+  async function updateAvgCost(input) {
+    const ticker = input.dataset.ticker;
+    const account = input.dataset.account;
+    const shares = parseInt(input.dataset.shares);
+    const newAvgCost = parseFloat(input.value);
+    const currentPrice = input.dataset.price ? parseFloat(input.dataset.price) : null;
+
+    if (isNaN(newAvgCost) || newAvgCost <= 0) {
+      input.style.borderColor = '#ef4444';
+      return;
+    }
+
+    input.style.borderColor = 'var(--accent)';
+    input.disabled = true;
+
+    try {
+      const res = await portfolioFetchWithRetry('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, account, shares, avgCost: newAvgCost }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || '更新失敗');
+
+      const pos = portfolioPositions.find(p => p.ticker === ticker && p.account === account);
+      if (pos) {
+        pos.avgCost = newAvgCost;
+        pos.costBasis = newAvgCost * pos.shares;
+        if (currentPrice !== null) {
+          pos.pnl = pos.marketValue !== null ? pos.marketValue - pos.costBasis : null;
+          pos.pnlPct = ((currentPrice - newAvgCost) / newAvgCost) * 100;
+        }
+      }
+
+      recalcPortfolioSummary();
+      applyPortfolioFilter();
+
+      input.style.borderColor = '#10b981';
+      setTimeout(() => { input.style.borderColor = 'var(--border)'; }, 1500);
+    } catch (e) {
+      input.style.borderColor = '#ef4444';
+      console.error('取得単価更新エラー:', e);
       setTimeout(() => { input.style.borderColor = 'var(--border)'; }, 2000);
     } finally {
       input.disabled = false;
