@@ -3317,7 +3317,7 @@
       const jp = isJpTicker(p.ticker);
       const price = p.currentPrice !== null ? fmtPrice(p.currentPrice, p.ticker) : '-';
       const mv = p.marketValue !== null ? fmtValue(p.marketValue, p.ticker) : '-';
-      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${jp ? fmtJpy(p.pnl) : fmtUsd(p.pnl)}</span>` : '-';
+      const pnl = p.pnl !== null ? `<span class="${pnlClass(p.pnl)}">${fmtValue(p.pnl, p.ticker)}</span>` : '-';
       const pnlPct = p.pnlPct !== null ? `<span class="${pnlClass(p.pnlPct)}">${fmtPct(p.pnlPct)}</span>` : '-';
       const day = p.dayChange !== null ? `<span class="${pnlClass(p.dayChange)}">${fmtPct(p.dayChange)}</span>` : '-';
       let rsiHtml = '-';
