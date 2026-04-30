@@ -1206,6 +1206,7 @@
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(page + '-page').classList.add('active');
     document.getElementById('nav-' + page).classList.add('active');
+    localStorage.setItem('finx_last_page', page);
     if (page === 'history') renderHistory();
     if (page === 'portfolio') loadPortfolioPage();
     if (page === 'backtest') initBacktestPage();
@@ -1213,6 +1214,14 @@
     if (page === 'daily-picks') loadDailyPicksPage();
     if (page === 'profit-check') loadProfitCheckPage();
   }
+
+  // リロード時に最後に開いていたページを復元
+  (function restoreLastPage() {
+    const savedPage = localStorage.getItem('finx_last_page');
+    if (!savedPage || savedPage === 'chat') return;
+    if (!document.getElementById(savedPage + '-page')) return;
+    showPage(savedPage);
+  })();
 
   // テキストエリア自動リサイズ
   inputEl.addEventListener('input', () => {
