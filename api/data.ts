@@ -10,7 +10,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 export const maxDuration = 30;
 
 // Basic認証が必要なtype一覧
-const PROTECTED_TYPES = new Set(['portfolio', 'dividends', 'watchlist', 'snapshots', 'tax-goals']);
+const PROTECTED_TYPES = new Set(['portfolio', 'dividends', 'watchlist', 'snapshots', 'tax-goals', 'alert-rules']);
 
 /**
  * Basic認証チェック
@@ -44,7 +44,7 @@ function checkBasicAuth(req: VercelRequest, res: VercelResponse): boolean {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -78,6 +78,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     case 'tax-goals': {
       const mod = await import('../src/api-handlers/tax-goals.js');
+      return mod.default(req, res);
+    }
+    case 'alert-rules': {
+      const mod = await import('../src/api-handlers/alert-rules.js');
       return mod.default(req, res);
     }
     case 'earnings': {

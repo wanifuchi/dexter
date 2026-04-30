@@ -23,6 +23,7 @@
     { "source": "/api/watchlist", "destination": "/api/data?type=watchlist" },
     { "source": "/api/snapshots", "destination": "/api/data?type=snapshots" },
     { "source": "/api/tax-goals", "destination": "/api/data?type=tax-goals" },
+    { "source": "/api/alert-rules", "destination": "/api/data?type=alert-rules" },
     { "source": "/api/backtest", "destination": "/api/backtest" },
     { "source": "/api/paper-trade", "destination": "/api/paper-trade" },
     { "source": "/api/line-webhook", "destination": "/api/line-webhook" },
