@@ -1,5 +1,62 @@
 # Finx 開発メモ — 次回再開用
 
+## 直近セッションの成果（2026-05-01）
+
+### 新機能
+
+#### 保有銘柄のドラッグ&ドロップ並び替え
+- **コミット:** `cd2c0db feat: 保有銘柄をドラッグ&ドロップで並び替え可能に`
+- **実装場所:**
+  - バックエンド: [src/api-handlers/update-shares.ts](src/api-handlers/update-shares.ts) — `action: 'reorder'` を追加
+  - フロントエンド: [public/index.html](public/index.html) — ソート選択肢に「カスタム順（手動）」追加、ドラッグハンドル列追加、`attachReorderHandlers()` / `reorderPortfolio()` を実装
+- **動作:**
+  - ソートが「カスタム順（手動）」のときだけ各行先頭の⋮⋮ハンドルがドラッグ可能
+  - ドラッグ中は半透明、ドロップ位置にアクセントカラーの線を表示（上下どちら側に挿入するかを視覚的に表示）
+  - ドロップ即時に `POST /api/portfolio` で `{ action: 'reorder', order: [{ticker, account}, ...] }` を送信
+  - サーバー側は `portfolio.positions` 配列を指定順に並べ替えてKV保存
+  - 別端末・リロード後も同じ並び順で表示される
+- **設計判断:**
+  - 並び順は `Position` に新フィールドを足さず、`positions` 配列の物理順序そのものを使う（最もシンプル）
+  - 口座フィルター適用中もドラッグ可能。フィルターで隠れた行の相対順序は維持される
+  - 他のソート（損益率/時価/日次など）を選んでいる時はハンドルが薄く表示されてドラッグ不可（誤操作防止）
+- **本番URL:** https://finx-psi.vercel.app
+- **本番デプロイ済み:** `dpl_7r19gVh6DnrGRR8YfbA7pUegCsPH`
+
+### メモリ更新
+- `~/.claude/projects/-Users-noriaki-Desktop-claude-base-dexter/memory/user_portfolio.md`
+  - 2026-05-01: SBI NISAでNVDA 31株 @$212.35 追加購入を記録
+
+### 議論したが未着手
+- **アプリ全体へのBasic認証** — ユーザーから「Finx開いた際にBasic認証できる？ pass=kairi1125」と相談あり
+  - 既存実装の確認結果: `/api/data?type=portfolio` 等のポートフォリオ系APIには既にBasic認証あり（`PORTFOLIO_BASIC_USER` / `PORTFOLIO_BASIC_PASSWORD`）
+  - 今回の相談は「フロントHTMLにアクセスする時点で認証ダイアログを出したい」という意図と推察
+  - **影響範囲の懸念点を共有済み:**
+    - LINE Webhook (`/api/line-webhook`) はLINEサーバーがBasicヘッダー送れないため要除外
+    - Vercel Cron (`/api/cron/*`) も要除外（A案=Vercel Password Protectionなら自動バイパス）
+  - **推奨アプローチ:** Vercel Hobbyプランの場合はB案（コードで`api/index.ts`新設＋`vercel.json` rewrite変更でフロントだけ保護）。Proなら A案（Deployment Protection > Password Protection）を有効化するだけで済む
+  - **次回:** Vercelプラン確認 → A/B選択 → 環境変数 `BASIC_AUTH_PASSWORD=kairi1125` 設定 → 実装
+  - 仕様メモは [specs/portfolio-page-auth-spec.md](specs/portfolio-page-auth-spec.md) に既存（未コミット、要確認）
+
+### コミットしていない無関係な変更（要確認）
+セッション開始時点ですでにworking treeに以下の変更が残っていた。今回のドラッグ&ドロップ機能とは無関係なのでコミット対象から外している。次回開発時にレビュー要：
+
+- `src/model/llm.ts` (modified)
+- `src/utils/errors.ts` (modified)
+- `src/utils/errors.test.ts` (new, untracked)
+- `specs/daily-picks-tab-spec.md` (new, untracked)
+- `specs/portfolio-page-auth-spec.md` (new, untracked)
+- `.playwright-mcp/console-2026-03-30T07-25-24-673Z.log` (deleted)
+- `.playwright-mcp/console-2026-03-30T09-47-45-225Z.log` (deleted)
+
+`git diff` で内容を確認し、必要なら別コミットで取り込む or `git restore` で破棄する判断が必要。
+
+### 次回の候補タスク
+- **Finx全体へのBasic認証実装**（上記参照）
+- **並び替え機能のモバイル対応** — 現状はHTML5 drag APIなのでデスクトップのみ。タッチ対応にはlong-press → touchmoveの実装が必要
+- **「カスタム順」のリセットボタン** — 何らかのソート結果を現在のカスタム順として固定する機能（例: 一度損益率順にしてから「この順を保存」ボタン）
+
+---
+
 ## 直近セッションの成果（2026-04-10）
 
 ### 新機能
