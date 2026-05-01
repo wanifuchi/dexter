@@ -4,6 +4,7 @@
  *   - 既存更新: { ticker, account, shares }
  *   - 新規追加: { ticker, account, shares, avgCost, name? }
  *     avgCostが指定されていれば新規追加、なければ既存のshares更新のみ
+ *   - 並び順変更: { action: 'reorder', order: Array<{ticker, account}> }
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { loadPortfolio, savePortfolio } from '../tools/trading/portfolio-store.js';
@@ -11,7 +12,34 @@ import { loadPortfolio, savePortfolio } from '../tools/trading/portfolio-store.j
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const { ticker, account, shares, avgCost, name } = req.body || {};
+  const body = req.body || {};
+
+  if (body.action === 'reorder') {
+    const order = body.order;
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'order配列は必須です' });
+    }
+    const portfolio = await loadPortfolio();
+    const keyOf = (ticker: string, account: string) => `${ticker}::${account}`;
+    const indexMap = new Map<string, number>();
+    order.forEach((o, i) => {
+      if (o && typeof o.ticker === 'string' && typeof o.account === 'string') {
+        indexMap.set(keyOf(o.ticker, o.account), i);
+      }
+    });
+    portfolio.positions.sort((a, b) => {
+      const ai = indexMap.get(keyOf(a.ticker, a.account));
+      const bi = indexMap.get(keyOf(b.ticker, b.account));
+      // 指定がない要素は末尾に
+      const av = ai ?? Number.MAX_SAFE_INTEGER;
+      const bv = bi ?? Number.MAX_SAFE_INTEGER;
+      return av - bv;
+    });
+    await savePortfolio(portfolio);
+    return res.json({ ok: true, action: 'reordered', count: portfolio.positions.length });
+  }
+
+  const { ticker, account, shares, avgCost, name } = body;
 
   if (!ticker || typeof shares !== 'number' || shares < 0) {
     return res.status(400).json({ error: '銘柄と株数（0以上）は必須です' });

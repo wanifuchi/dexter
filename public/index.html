@@ -612,6 +612,40 @@
       font-size: 13px;
     }
 
+    /* 並び替え（ドラッグ&ドロップ） */
+    .positions-table th.drag-col,
+    .positions-table td.drag-cell {
+      width: 28px;
+      padding: 4px 6px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .positions-table tr.draggable-row td.drag-cell {
+      cursor: grab;
+      -webkit-user-select: none;
+      user-select: none;
+      font-size: 14px;
+      line-height: 1;
+      opacity: 0.55;
+    }
+    .positions-table tr.draggable-row:hover td.drag-cell {
+      opacity: 1;
+    }
+    .positions-table tr.dragging {
+      opacity: 0.4;
+      background: var(--bg-card);
+    }
+    .positions-table tr.drop-target-above td {
+      box-shadow: inset 0 2px 0 0 var(--accent);
+    }
+    .positions-table tr.drop-target-below td {
+      box-shadow: inset 0 -2px 0 0 var(--accent);
+    }
+    .positions-table tr.drag-disabled td.drag-cell {
+      cursor: not-allowed;
+      opacity: 0.2;
+    }
+
     @media (max-width: 768px) {
       .hide-mobile { display: none; }
       .analysis-grid { grid-template-columns: 1fr; }
@@ -819,6 +853,7 @@
               <option value="rakuten-tokutei">楽天 特定</option>
             </select>
             <select id="pf-sort" onchange="applyPortfolioFilter()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);font-family:inherit">
+              <option value="custom-asc">カスタム順（手動）</option>
               <option value="pnlPct-desc">損益率 ↓</option>
               <option value="pnlPct-asc">損益率 ↑</option>
               <option value="marketValue-desc">時価 ↓</option>
@@ -834,6 +869,7 @@
           <table class="positions-table">
             <thead>
               <tr>
+                <th class="drag-col" id="drag-col-header"></th>
                 <th>銘柄</th>
                 <th>株数</th>
                 <th class="hide-mobile">取得単価</th>
@@ -3311,17 +3347,26 @@
     }
 
     const [field, dir] = sortKey.split('-');
-    filtered.sort((a, b) => {
-      const av = a[field] ?? (dir === 'desc' ? -Infinity : Infinity);
-      const bv = b[field] ?? (dir === 'desc' ? -Infinity : Infinity);
-      if (field === 'ticker') return dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
-      return dir === 'desc' ? bv - av : av - bv;
-    });
+    if (field !== 'custom') {
+      filtered.sort((a, b) => {
+        const av = a[field] ?? (dir === 'desc' ? -Infinity : Infinity);
+        const bv = b[field] ?? (dir === 'desc' ? -Infinity : Infinity);
+        if (field === 'ticker') return dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+        return dir === 'desc' ? bv - av : av - bv;
+      });
+    }
+    // custom順のときは portfolioPositions の配列順をそのまま使う
 
     renderPositionsTable(filtered);
   }
 
+  function isCustomSortActive() {
+    const sortEl = document.getElementById('pf-sort');
+    return sortEl && sortEl.value === 'custom-asc';
+  }
+
   function renderPositionsTable(positions) {
+    const dragEnabled = isCustomSortActive();
     const rows = positions.map(p => {
       const jp = isJpTicker(p.ticker);
       const price = p.currentPrice !== null ? fmtPrice(p.currentPrice, p.ticker) : '-';
@@ -3341,7 +3386,12 @@
       }
       const costStep = jp ? '1' : '0.01';
       const costValue = jp ? Math.round(p.avgCost) : p.avgCost.toFixed(2);
-      return `<tr>
+      const rowCls = dragEnabled ? 'draggable-row' : 'drag-disabled';
+      const dragAttrs = dragEnabled
+        ? `draggable="true" data-ticker="${p.ticker}" data-account="${p.account}"`
+        : `data-ticker="${p.ticker}" data-account="${p.account}"`;
+      return `<tr class="${rowCls}" ${dragAttrs}>
+        <td class="drag-cell" title="${dragEnabled ? 'ドラッグして並び替え' : 'ソートを「カスタム順」にすると並び替え可能'}">⋮⋮</td>
         <td><a style="cursor:pointer;color:var(--accent);text-decoration:none;font-weight:700" onclick="showStockDetail('${p.ticker}')" title="${escapeHtml(p.name)} | ${p.shares}株 | 取得${fmtPrice(p.avgCost, p.ticker)}">${p.ticker}</a></td>
         <td><input type="number" min="0" value="${p.shares}" data-ticker="${p.ticker}" data-account="${p.account}" data-avg-cost="${p.avgCost}" data-price="${p.currentPrice ?? ''}" class="shares-input" onchange="updateShares(this)" onfocus="this.select()" style="width:60px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
         <td class="hide-mobile"><input type="number" min="0" step="${costStep}" value="${costValue}" data-ticker="${p.ticker}" data-account="${p.account}" data-shares="${p.shares}" data-price="${p.currentPrice ?? ''}" class="cost-input" onchange="updateAvgCost(this)" onfocus="this.select()" style="width:80px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);text-align:right;font-family:inherit"></td>
@@ -3356,6 +3406,89 @@
       </tr>`;
     }).join('');
     document.getElementById('positions-body').innerHTML = rows;
+    if (dragEnabled) attachReorderHandlers();
+  }
+
+  // --- 保有銘柄 並び替え（ドラッグ&ドロップ） ---
+  let dragSrcKey = null;
+  function rowKey(tr) {
+    return `${tr.dataset.ticker}::${tr.dataset.account}`;
+  }
+  function attachReorderHandlers() {
+    const tbody = document.getElementById('positions-body');
+    if (!tbody) return;
+    const rows = tbody.querySelectorAll('tr.draggable-row');
+    rows.forEach(tr => {
+      tr.addEventListener('dragstart', onRowDragStart);
+      tr.addEventListener('dragover', onRowDragOver);
+      tr.addEventListener('dragleave', onRowDragLeave);
+      tr.addEventListener('drop', onRowDrop);
+      tr.addEventListener('dragend', onRowDragEnd);
+    });
+  }
+  function onRowDragStart(e) {
+    dragSrcKey = rowKey(this);
+    this.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', dragSrcKey); } catch (_) {}
+    }
+  }
+  function onRowDragOver(e) {
+    if (!dragSrcKey) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const rect = this.getBoundingClientRect();
+    const isAbove = (e.clientY - rect.top) < rect.height / 2;
+    this.classList.toggle('drop-target-above', isAbove);
+    this.classList.toggle('drop-target-below', !isAbove);
+  }
+  function onRowDragLeave() {
+    this.classList.remove('drop-target-above', 'drop-target-below');
+  }
+  function onRowDragEnd() {
+    document.querySelectorAll('#positions-body tr').forEach(tr => {
+      tr.classList.remove('dragging', 'drop-target-above', 'drop-target-below');
+    });
+    dragSrcKey = null;
+  }
+  function onRowDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetKey = rowKey(this);
+    const rect = this.getBoundingClientRect();
+    const insertAbove = (e.clientY - rect.top) < rect.height / 2;
+    this.classList.remove('drop-target-above', 'drop-target-below');
+    if (!dragSrcKey || dragSrcKey === targetKey) return;
+    reorderPortfolio(dragSrcKey, targetKey, insertAbove);
+  }
+  async function reorderPortfolio(srcKey, targetKey, insertAbove) {
+    const arr = [...portfolioPositions];
+    const keyOf = (p) => `${p.ticker}::${p.account}`;
+    const srcIdx = arr.findIndex(p => keyOf(p) === srcKey);
+    if (srcIdx < 0) return;
+    const [moved] = arr.splice(srcIdx, 1);
+    let targetIdx = arr.findIndex(p => keyOf(p) === targetKey);
+    if (targetIdx < 0) {
+      arr.push(moved);
+    } else {
+      arr.splice(insertAbove ? targetIdx : targetIdx + 1, 0, moved);
+    }
+    portfolioPositions = arr;
+    applyPortfolioFilter();
+    try {
+      const res = await portfolioFetchWithRetry('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reorder',
+          order: arr.map(p => ({ ticker: p.ticker, account: p.account })),
+        }),
+      });
+      if (!res.ok) throw new Error('保存失敗');
+    } catch (err) {
+      console.error('並び順の保存に失敗:', err);
+    }
   }
 
   // --- 株数編集・再計算 ---
