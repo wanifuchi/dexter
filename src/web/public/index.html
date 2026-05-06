@@ -482,7 +482,7 @@
     }
     .summary-cards {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
       margin-bottom: 20px;
     }
@@ -3593,15 +3593,20 @@
   }
 
   function recalcPortfolioSummary() {
-    let totalCost = 0, totalValue = 0;
+    let totalCost = 0, totalValue = 0, totalDayPnl = 0, totalPrevValue = 0;
     for (const p of portfolioPositions) {
       if (p.marketValue !== null) {
         totalCost += p.avgCost * p.shares;
         totalValue += p.marketValue;
       }
+      if (p.currentPrice !== null && p.previousClose !== null && p.previousClose !== undefined) {
+        totalDayPnl += (p.currentPrice - p.previousClose) * p.shares;
+        totalPrevValue += p.previousClose * p.shares;
+      }
     }
     const totalPnl = totalValue - totalCost;
     const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+    const dayPnlPct = totalPrevValue > 0 ? (totalDayPnl / totalPrevValue) * 100 : 0;
 
     document.getElementById('summary-cards').innerHTML = `
       <div class="summary-card">
@@ -3617,12 +3622,17 @@
       <div class="summary-card">
         <div class="label">含み損益</div>
         <div class="value ${pnlClass(totalPnl)}">${fmtJpy(totalPnl * portfolioUsdJpy)}</div>
-        <div style="font-size:12px" class="${pnlClass(totalPnl)}">${fmtUsd(totalPnl)}</div>
+        <div style="font-size:12px" class="${pnlClass(totalPnl)}">${fmtUsd(totalPnl)} (${fmtPct(totalPnlPct)})</div>
       </div>
       <div class="summary-card">
-        <div class="label">損益率</div>
-        <div class="value ${pnlClass(totalPnlPct)}">${fmtPct(totalPnlPct)}</div>
-        <div style="font-size:12px;color:var(--text-muted)">$1 = ¥${portfolioUsdJpy.toFixed(2)}</div>
+        <div class="label">本日の損益</div>
+        <div class="value ${pnlClass(totalDayPnl)}">${fmtJpy(totalDayPnl * portfolioUsdJpy)}</div>
+        <div style="font-size:12px" class="${pnlClass(totalDayPnl)}">${fmtUsd(totalDayPnl)} (${fmtPct(dayPnlPct)})</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">為替レート</div>
+        <div class="value">¥${portfolioUsdJpy.toFixed(2)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">USD/JPY</div>
       </div>
     `;
 
@@ -3869,6 +3879,8 @@
 
     // サマリーカード
     const s = data.summary;
+    const dayPnl = s.totalDayPnl ?? 0;
+    const dayPnlPct = s.totalDayPnlPct ?? 0;
     document.getElementById('summary-cards').innerHTML = `
       <div class="summary-card">
         <div class="label">時価総額</div>
@@ -3883,12 +3895,17 @@
       <div class="summary-card">
         <div class="label">含み損益</div>
         <div class="value ${pnlClass(s.totalPnl)}">${fmtJpy(s.totalPnl * portfolioUsdJpy)}</div>
-        <div style="font-size:12px" class="${pnlClass(s.totalPnl)}">${fmtUsd(s.totalPnl)}</div>
+        <div style="font-size:12px" class="${pnlClass(s.totalPnl)}">${fmtUsd(s.totalPnl)} (${fmtPct(s.totalPnlPct)})</div>
       </div>
       <div class="summary-card">
-        <div class="label">損益率</div>
-        <div class="value ${pnlClass(s.totalPnlPct)}">${fmtPct(s.totalPnlPct)}</div>
-        <div style="font-size:12px;color:var(--text-muted)">$1 = ¥${portfolioUsdJpy.toFixed(2)}</div>
+        <div class="label">本日の損益</div>
+        <div class="value ${pnlClass(dayPnl)}">${fmtJpy(dayPnl * portfolioUsdJpy)}</div>
+        <div style="font-size:12px" class="${pnlClass(dayPnl)}">${fmtUsd(dayPnl)} (${fmtPct(dayPnlPct)})</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">為替レート</div>
+        <div class="value">¥${portfolioUsdJpy.toFixed(2)}</div>
+        <div style="font-size:12px;color:var(--text-muted)">USD/JPY</div>
       </div>
     `;
 

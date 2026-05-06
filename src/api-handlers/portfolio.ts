@@ -156,21 +156,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ポジションにリアルタイム価格を付与
     let totalCost = 0;
     let totalValue = 0;
+    let totalDayPnl = 0;
+    let totalPrevValue = 0;
 
     const enrichedPositions = portfolio.positions.map((pos) => {
       const pd = priceMap.get(pos.ticker);
       const currentPrice = pd?.price ?? null;
+      const previousClose = pd?.previousClose ?? null;
       const marketValue = currentPrice !== null ? currentPrice * pos.shares : null;
       const costBasis = pos.avgCost * pos.shares;
       const pnl = marketValue !== null ? marketValue - costBasis : null;
       const pnlPct = currentPrice !== null ? ((currentPrice - pos.avgCost) / pos.avgCost) * 100 : null;
-      const dayChange = pd?.price && pd?.previousClose
-        ? ((pd.price - pd.previousClose) / pd.previousClose) * 100
+      const dayChange = currentPrice !== null && previousClose !== null && previousClose > 0
+        ? ((currentPrice - previousClose) / previousClose) * 100
+        : null;
+      const dayPnl = currentPrice !== null && previousClose !== null
+        ? (currentPrice - previousClose) * pos.shares
         : null;
 
       if (marketValue !== null) {
         totalCost += costBasis;
         totalValue += marketValue;
+      }
+      if (dayPnl !== null && previousClose !== null) {
+        totalDayPnl += dayPnl;
+        totalPrevValue += previousClose * pos.shares;
       }
 
       return {
@@ -180,11 +190,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         avgCost: pos.avgCost,
         account: pos.account,
         currentPrice,
+        previousClose,
         marketValue,
         costBasis,
         pnl,
         pnlPct,
         dayChange,
+        dayPnl,
         rsi14: pd?.rsi14 ?? null,
         sma50: pd?.sma50 ?? null,
       };
@@ -192,6 +204,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const totalPnl = totalValue - totalCost;
     const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+    const totalDayPnlPct = totalPrevValue > 0 ? (totalDayPnl / totalPrevValue) * 100 : 0;
 
     // 口座別サマリー
     const accountSummary: Record<string, { cost: number; value: number; count: number }> = {};
@@ -248,6 +261,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         totalValue,
         totalPnl,
         totalPnlPct,
+        totalDayPnl,
+        totalDayPnlPct,
         positionCount: enrichedPositions.length,
       },
       accountSummary,
