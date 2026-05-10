@@ -1787,7 +1787,10 @@
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || '追加失敗');
-      status.textContent = `${ticker} を追加しました。`;
+      const alertMsg = result.autoAlertsCreated > 0
+        ? ` アラート${result.autoAlertsCreated}本も自動登録（利確+15% / 損切-10% / 日次±6%）`
+        : '';
+      status.textContent = `${ticker} を追加しました。${alertMsg}`;
       document.getElementById('pe-ticker').value = '';
       document.getElementById('pe-name').value = '';
       document.getElementById('pe-shares').value = '';

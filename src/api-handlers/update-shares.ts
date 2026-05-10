@@ -2,12 +2,49 @@
  * ポートフォリオの株数を更新するAPIハンドラー
  * POST /api/portfolio
  *   - 既存更新: { ticker, account, shares }
- *   - 新規追加: { ticker, account, shares, avgCost, name? }
+ *   - 新規追加: { ticker, account, shares, avgCost, name?, skipAutoAlerts? }
  *     avgCostが指定されていれば新規追加、なければ既存のshares更新のみ
+ *     新規追加時はデフォルトアラート4本（利確+15%/損切-10%/日次±6%）を自動登録
+ *     skipAutoAlerts: true で自動登録を無効化可能
  *   - 並び順変更: { action: 'reorder', order: Array<{ticker, account}> }
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { loadPortfolio, savePortfolio } from '../tools/trading/portfolio-store.js';
+import { loadAlertStore, addAlertRule } from '../tools/trading/alert-store.js';
+import type { AlertCondition } from '../tools/trading/types.js';
+
+/**
+ * 新規ポジションのデフォルトアラートルール4本を作成（重複はスキップ）
+ * 返り値: 実際に追加されたルール数
+ */
+async function createDefaultAlertsFor(
+  ticker: string,
+  name: string,
+  avgCost: number,
+): Promise<number> {
+  const round = (n: number, digits: number) => Number(n.toFixed(digits));
+  const priceDigits = avgCost < 10 ? 2 : avgCost < 100 ? 2 : 2;
+  const proposedRules: Array<{ condition: AlertCondition; threshold: number }> = [
+    { condition: 'price_above',      threshold: round(avgCost * 1.15, priceDigits) }, // 利確 +15%
+    { condition: 'price_below',      threshold: round(avgCost * 0.90, priceDigits) }, // 損切 -10%
+    { condition: 'change_pct_above', threshold: 6 },                                   // 日次急騰 +6%
+    { condition: 'change_pct_below', threshold: -6 },                                  // 日次急落 -6%
+  ];
+
+  const store = await loadAlertStore();
+  const existingKeys = new Set(
+    store.rules.map((r) => `${r.ticker}|${r.condition}|${r.threshold}`),
+  );
+
+  let added = 0;
+  for (const rule of proposedRules) {
+    const key = `${ticker}|${rule.condition}|${rule.threshold}`;
+    if (existingKeys.has(key)) continue;
+    await addAlertRule({ ticker, name, condition: rule.condition, threshold: rule.threshold });
+    added++;
+  }
+  return added;
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -68,7 +105,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       addedAt: Date.now(),
     });
     await savePortfolio(portfolio);
-    return res.json({ ok: true, ticker: upperTicker, shares, avgCost, account: account || 'rakuten-tokutei', action: 'added' });
+
+    // 新規ポジションには自動でアラートルール4本を登録
+    let autoAlertsCreated = 0;
+    if (!body.skipAutoAlerts) {
+      try {
+        autoAlertsCreated = await createDefaultAlertsFor(upperTicker, name || upperTicker, avgCost);
+      } catch (e) {
+        // アラート登録失敗してもポジション追加は成功扱い
+        console.error('自動アラート登録エラー:', e);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      ticker: upperTicker,
+      shares,
+      avgCost,
+      account: account || 'rakuten-tokutei',
+      action: 'added',
+      autoAlertsCreated,
+    });
   }
 
   if (shares === 0) {
