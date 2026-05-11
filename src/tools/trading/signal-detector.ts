@@ -189,13 +189,28 @@ function evaluateRule(rule: AlertRule, snap: TickerSnapshot): Signal | null {
     change_pct_below: '日次下落率が閾値超え',
   };
 
+  // 条件ごとに値の単位を分けて表示（%/価格/倍率）
+  const isPercent = rule.condition === 'change_pct_above' || rule.condition === 'change_pct_below' || rule.condition === 'dividend_yield_above';
+  const isPrice = rule.condition === 'price_above' || rule.condition === 'price_below';
+  const fmtVal = (v: number) => {
+    if (isPercent) return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    if (isPrice) return `$${v.toFixed(2)}`;
+    return v.toFixed(2);
+  };
+  const fmtThr = (v: number) => {
+    if (isPercent) return `${v >= 0 ? '+' : ''}${v}%`;
+    if (isPrice) return `$${v}`;
+    return String(v);
+  };
+  const valueLabel = isPercent ? '本日変動' : isPrice ? '現在値' : '現在値';
+
   return {
     ticker: rule.ticker,
     name: rule.name ?? snap.name,
     type: rule.condition,
     currentValue,
     threshold: rule.threshold,
-    message: `[${conditionLabels[rule.condition]}] ${snap.name ?? rule.ticker}: 現在値 ${currentValue.toFixed(2)} (閾値: ${rule.threshold})`,
+    message: `[${conditionLabels[rule.condition]}] ${snap.name ?? rule.ticker}: ${valueLabel} ${fmtVal(currentValue)} (閾値: ${fmtThr(rule.threshold)})`,
     triggeredAt: Date.now(),
   };
 }
