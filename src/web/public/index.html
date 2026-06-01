@@ -486,6 +486,22 @@
       gap: 12px;
       margin-bottom: 20px;
     }
+    /* オールタイムハイバナー */
+    #ath-banner {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #16a34a 100%);
+      color: #fff;
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+    }
+    #ath-banner .ath-icon { font-size: 22px; line-height: 1; }
+    #ath-banner .ath-sub  { font-weight: 500; font-size: 12px; opacity: 0.95; margin-left: auto; }
     .summary-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -828,6 +844,8 @@
   <div class="portfolio-container" id="portfolio-container">
     <div class="portfolio-loading" id="portfolio-loading">読み込み中...</div>
     <div id="portfolio-content" style="display:none">
+      <!-- ATHバナー（更新中のみ表示） -->
+      <div id="ath-banner" style="display:none"></div>
       <!-- サマリー（常に表示） -->
       <div class="summary-cards" id="summary-cards"></div>
 
@@ -1761,12 +1779,35 @@
       }
     }).observe(chartEl);
 
-    legendEl.innerHTML = `
+    // 日付→時価総額のマップ（ホバー時の表示用）
+    const valueByDate = new Map(snapshots.map(s => [s.date, s.totalValue]));
+    const spByDate = new Map((sp500Filtered || []).map(d => [d.date, d.close]));
+    const spBaseClose = spData.length > 0 ? sp500Filtered[0].close : 0;
+
+    const staticLegend = `
       <span style="color:${portColor}">━━</span> ポートフォリオ (${lastPort.value.toFixed(1)})
       ${spData.length > 0 ? `&nbsp;&nbsp;<span style="color:#9ca3af">╌╌</span> S&P500 (${spData[spData.length - 1].value.toFixed(1)})` : ''}
       &nbsp;&nbsp;<span style="color:var(--text-muted)">基準=100</span>
     `;
+    legendEl.innerHTML = staticLegend;
     legendEl.style.display = 'block';
+
+    // ホバーで時価総額を表示
+    perfChartInstance.subscribeCrosshairMove(param => {
+      if (!param.time || !valueByDate.has(param.time)) {
+        legendEl.innerHTML = staticLegend;
+        return;
+      }
+      const tv = valueByDate.get(param.time);
+      const portIdx = (tv / baseValue) * 100;
+      const spCloseAtTime = spByDate.get(param.time);
+      const spIdx = spCloseAtTime && spBaseClose ? (spCloseAtTime / spBaseClose) * 100 : null;
+      legendEl.innerHTML = `
+        <span style="color:var(--text-muted)">${param.time}</span>
+        &nbsp;&nbsp;<span style="color:${portColor}">━━</span> 時価総額 <strong>${fmtJpy(tv * portfolioUsdJpy)}</strong> <span style="color:var(--text-muted)">($${tv.toLocaleString(undefined,{maximumFractionDigits:0})} / ${portIdx.toFixed(1)})</span>
+        ${spIdx !== null ? `&nbsp;&nbsp;<span style="color:#9ca3af">╌╌</span> S&P500 (${spIdx.toFixed(1)})` : ''}
+      `;
+    });
   }
 
   // --- ポジション編集 ---
@@ -3879,6 +3920,32 @@
   function renderPortfolio(data) {
     portfolioUsdJpy = data.usdJpy || 150;
     portfolioPositions = data.positions;
+
+    // ATHバナー
+    const athEl = document.getElementById('ath-banner');
+    const ath = data.summary?.ath;
+    if (ath && ath.isATH) {
+      athEl.innerHTML = `
+        <span class="ath-icon">🏆</span>
+        <span>史上最高値 更新中！ <span style="opacity:0.9">時価総額 ${fmtJpy(ath.value * portfolioUsdJpy)} ($${ath.value.toLocaleString(undefined, { maximumFractionDigits: 0 })})</span></span>
+        <span class="ath-sub">設計通りの利確を意識（rumaトレード理論）</span>
+      `;
+      athEl.style.display = 'flex';
+    } else if (ath && ath.daysSince > 0) {
+      // ATH未達の場合、控えめに前回ATHを表示
+      const pct = ((ath.value - (data.summary.totalValue || 0)) / ath.value) * 100;
+      athEl.innerHTML = `
+        <span class="ath-icon" style="opacity:0.7">📊</span>
+        <span style="font-weight:500">前回ATH ${ath.date} <span style="opacity:0.85">(${ath.daysSince}日前、あと +${pct.toFixed(1)}%)</span></span>
+      `;
+      athEl.style.background = 'var(--bg-card)';
+      athEl.style.color = 'var(--text-muted)';
+      athEl.style.border = '1px solid var(--border)';
+      athEl.style.boxShadow = 'none';
+      athEl.style.display = 'flex';
+    } else {
+      athEl.style.display = 'none';
+    }
 
     // サマリーカード
     const s = data.summary;

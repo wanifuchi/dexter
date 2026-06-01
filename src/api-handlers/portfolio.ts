@@ -6,6 +6,23 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { loadPortfolio } from '../tools/trading/portfolio-store.js';
 import { loadAlertStore } from '../tools/trading/alert-store.js';
 
+async function loadSnapshotsArray(): Promise<Array<{ date: string; totalValue: number }>> {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.UPSTASH_REDIS_KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
+  if (!url || !token) return [];
+  try {
+    const { Redis } = await import('@upstash/redis');
+    const redis = new Redis({ url, token });
+    let raw = await redis.get('finx:snapshots');
+    while (typeof raw === 'string') {
+      try { raw = JSON.parse(raw); } catch { break; }
+    }
+    return Array.isArray(raw) ? (raw as Array<{ date: string; totalValue: number }>) : [];
+  } catch {
+    return [];
+  }
+}
+
 export const maxDuration = 30;
 
 interface PriceData {
@@ -130,9 +147,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const [portfolio, alertStore] = await Promise.all([
+    const [portfolio, alertStore, snapshots] = await Promise.all([
       loadPortfolio(),
       loadAlertStore(),
+      loadSnapshotsArray(),
     ]);
 
     // USD/JPY為替レート取得
@@ -264,6 +282,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         totalDayPnl,
         totalDayPnlPct,
         positionCount: enrichedPositions.length,
+        ath: (() => {
+          // 過去スナップショットの最大totalValueと現在を比較
+          if (snapshots.length === 0) return null;
+          let pastMax = -Infinity;
+          let pastMaxDate: string | null = null;
+          for (const s of snapshots) {
+            if (typeof s.totalValue === 'number' && s.totalValue > pastMax) {
+              pastMax = s.totalValue;
+              pastMaxDate = s.date;
+            }
+          }
+          if (pastMax === -Infinity) return null;
+          const isATH = totalValue >= pastMax;
+          const athValue = isATH ? totalValue : pastMax;
+          const athDate = isATH ? new Date().toISOString().split('T')[0] : pastMaxDate;
+          let daysSince = 0;
+          if (!isATH && pastMaxDate) {
+            const diff = (Date.now() - new Date(pastMaxDate).getTime()) / 86400000;
+            daysSince = Math.max(0, Math.round(diff));
+          }
+          return { isATH, value: athValue, date: athDate, daysSince };
+        })(),
       },
       accountSummary,
       attribution,
