@@ -665,6 +665,10 @@
     @media (max-width: 768px) {
       .hide-mobile { display: none; }
       .analysis-grid { grid-template-columns: 1fr; }
+      /* 保有銘柄テーブルだけは横スクロールで全列表示 */
+      .positions-table th.hide-mobile,
+      .positions-table td.hide-mobile { display: table-cell; }
+      .positions-table { min-width: 800px; }
     }
     @media (max-width: 640px) {
       .suggestions { grid-template-columns: 1fr; }
@@ -798,12 +802,13 @@
       </div>
     </div>
     <div id="sd-chart" style="width:100%;height:400px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
-    <div id="sd-volume" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:none">
+    <div id="sd-volume" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:none;position:relative">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:13px;font-weight:600">出来高推移（直近14日）</div>
         <div id="sd-volume-meta" style="font-size:12px;color:var(--text-muted)"></div>
       </div>
       <svg id="sd-volume-chart" width="100%" height="80"></svg>
+      <div id="sd-volume-tooltip" style="position:absolute;display:none;pointer-events:none;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:10;white-space:nowrap"></div>
     </div>
     <div id="sd-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;font-size:13px"></div>
     <div id="sd-smart-money" style="margin-bottom:16px;font-size:13px;color:var(--text-muted)">スマートマネー読み込み中...</div>
@@ -2714,7 +2719,15 @@
       // ヘッダー更新
       document.getElementById('sd-name').textContent = meta.shortName || meta.longName || '';
       const price = meta.regularMarketPrice;
-      const prevClose = meta.chartPreviousClose || meta.previousClose;
+      // 前日終値:
+      //   - 1d/5d レンジ（分足）: meta.chartPreviousClose = 昨日の終値 ✓
+      //   - 1mo以上（日足）: meta.chartPreviousClose は「レンジ開始前」の値（1ヶ月前など）になるため使えない
+      //     → 日足closes配列の最後から2番目（前営業日終値）を優先
+      const isIntradayRange = interval.includes('m');
+      const closesArr = (quote.close || []).filter(c => c !== null);
+      const prevClose = isIntradayRange
+        ? (meta.chartPreviousClose || meta.previousClose)
+        : (closesArr.length >= 2 ? closesArr[closesArr.length - 2] : (meta.previousClose || meta.chartPreviousClose));
       const change = price - prevClose;
       const changePct = prevClose ? (change / prevClose * 100) : 0;
       document.getElementById('sd-price').textContent = `$${price.toFixed(2)}`;
@@ -2725,9 +2738,15 @@
       // 出来高棒グラフ（直近14日）+ 変化率
       const volumesAll = (quote.volume || []).filter(v => v !== null && v !== undefined);
       const recentVol = volumesAll.slice(-14);
+      // 日付配列（出来高と同じインデックスで対応）
+      const recentDates = (timestamps || []).slice(-recentVol.length).map(t => {
+        const d = new Date(t * 1000);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      });
       const volumeBox = document.getElementById('sd-volume');
       const volumeChartEl = document.getElementById('sd-volume-chart');
       const volumeMetaEl = document.getElementById('sd-volume-meta');
+      const volumeTooltip = document.getElementById('sd-volume-tooltip');
       const fmtVolNum = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
       let volChangePct = null;
       if (recentVol.length >= 11) {
@@ -2753,7 +2772,8 @@
           const isToday = i === barCount - 1;
           const fill = isToday ? todayColor : 'var(--text-muted)';
           const opacity = isToday ? 1 : 0.45;
-          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}"/>`;
+          const date = recentDates[i] || '';
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}" data-vol="${v}" data-date="${date}" data-idx="${i}" style="cursor:pointer"/>`;
         }).join('');
         // 平均線
         const avg = recentVol.reduce((s, v) => s + v, 0) / recentVol.length;
@@ -2761,6 +2781,29 @@
         const avgLine = `<line x1="${vPad}" y1="${avgY.toFixed(1)}" x2="${VW - vPad}" y2="${avgY.toFixed(1)}" stroke="var(--text-muted)" stroke-dasharray="3,3" stroke-width="1" opacity="0.5"/>`;
         volumeChartEl.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
         volumeChartEl.innerHTML = bars + avgLine;
+        // ホバー: 各バーで日付と出来高を表示
+        const avgVol = avg;
+        volumeChartEl.querySelectorAll('rect').forEach(rect => {
+          rect.addEventListener('mouseenter', e => {
+            const v = parseFloat(rect.dataset.vol);
+            const d = rect.dataset.date;
+            const idx = parseInt(rect.dataset.idx);
+            const isLast = idx === barCount - 1;
+            const pctVsAvg = avgVol > 0 ? ((v - avgVol) / avgVol) * 100 : 0;
+            volumeTooltip.innerHTML = `<div style="font-weight:600">${d}${isLast ? ' (本日)' : ''}</div><div>出来高: <strong>${fmtVolNum(v)}</strong></div><div style="color:var(--text-muted)">vs 14日平均: ${pctVsAvg >= 0 ? '+' : ''}${pctVsAvg.toFixed(0)}%</div>`;
+            volumeTooltip.style.display = 'block';
+          });
+          rect.addEventListener('mousemove', e => {
+            const box = volumeBox.getBoundingClientRect();
+            const x = e.clientX - box.left + 10;
+            const y = e.clientY - box.top + 10;
+            volumeTooltip.style.left = Math.min(x, box.width - 160) + 'px';
+            volumeTooltip.style.top = y + 'px';
+          });
+          rect.addEventListener('mouseleave', () => {
+            volumeTooltip.style.display = 'none';
+          });
+        });
         const todayVol = recentVol[recentVol.length - 1];
         let metaStr = `本日 ${fmtVolNum(todayVol)}`;
         if (volChangePct !== null) {
