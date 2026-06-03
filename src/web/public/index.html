@@ -897,6 +897,7 @@
                 <th class="hide-mobile">時価</th>
                 <th class="hide-mobile">損益</th>
                 <th class="hide-mobile"><span class="tooltip-trigger" data-tooltip="14日間相対力指数。30以下=売られすぎ、70以上=買われすぎ">RSI</span></th>
+                <th class="hide-mobile"><span class="tooltip-trigger" data-tooltip="本日の出来高 vs 直近10日平均。+50%超は急増（赤太字）、-25%以下は閑散">出来高</span></th>
                 <th class="hide-mobile"><span class="tooltip-trigger" data-tooltip="現在値と50日移動平均線の乖離率">vs 50MA</span></th>
                 <th class="hide-mobile">口座</th>
               </tr>
@@ -1851,19 +1852,36 @@
       existing.remove();
       return;
     }
-    // チャート行を挿入
+    // チャート行を挿入（価格スパークライン + 出来高棒グラフ）
     const chartRow = document.createElement('tr');
     chartRow.className = 'mini-chart-row';
-    chartRow.innerHTML = `<td colspan="9" style="padding:8px 10px;background:var(--bg-input)"><div style="display:flex;gap:12px;align-items:center"><svg id="mc-${ticker}" width="200" height="40"></svg><span style="font-size:11px;color:var(--text-muted)" id="mc-info-${ticker}">読み込み中...</span><a style="cursor:pointer;font-size:11px;color:var(--accent)" onclick="analyzeStock('${ticker}')">詳細分析→</a></div></td>`;
+    chartRow.innerHTML = `<td colspan="13" style="padding:10px 12px;background:var(--bg-input)">
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:10px;color:var(--text-muted)">価格（1ヶ月）</span>
+          <svg id="mc-${ticker}" width="200" height="40"></svg>
+          <span style="font-size:11px;color:var(--text-muted)" id="mc-info-${ticker}">読み込み中...</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:10px;color:var(--text-muted)">出来高（14日）</span>
+          <svg id="mv-${ticker}" width="160" height="40"></svg>
+          <span style="font-size:11px;color:var(--text-muted)" id="mv-info-${ticker}">&nbsp;</span>
+        </div>
+        <a style="cursor:pointer;font-size:11px;color:var(--accent);margin-left:auto" onclick="analyzeStock('${ticker}')">詳細分析→</a>
+      </div>
+    </td>`;
     row.after(chartRow);
 
     try {
       const symbol = /^\d{4}$/.test(ticker) ? ticker + '.T' : ticker;
       const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const json = await res.json();
-      const closes = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []).filter(c => c !== null);
+      const quote = json?.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+      const closes = (quote.close || []).filter(c => c !== null);
+      const volumes = (quote.volume || []).filter(v => v !== null && v !== undefined);
       if (closes.length < 2) { document.getElementById('mc-info-' + ticker).textContent = 'データ不足'; return; }
 
+      // --- 価格スパークライン ---
       const W = 200, H = 40, pad = 2;
       const min = Math.min(...closes), max = Math.max(...closes);
       const range = max - min || 1;
@@ -1872,11 +1890,46 @@
         const y = pad + (1 - (c - min) / range) * (H - pad * 2);
         return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
       }).join(' ');
-
       const color = closes[closes.length - 1] >= closes[0] ? '#16a34a' : '#dc2626';
       const changePct = ((closes[closes.length - 1] - closes[0]) / closes[0] * 100).toFixed(1);
       document.getElementById('mc-' + ticker).innerHTML = `<path d="${points}" fill="none" stroke="${color}" stroke-width="1.5"/>`;
-      document.getElementById('mc-info-' + ticker).innerHTML = `1ヶ月: <span class="${parseFloat(changePct) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${changePct}%</span> (${closes.length}日)`;
+      document.getElementById('mc-info-' + ticker).innerHTML = `<span class="${parseFloat(changePct) >= 0 ? 'pnl-pos' : 'pnl-neg'}">${changePct}%</span> (${closes.length}日)`;
+
+      // --- 出来高棒グラフ（直近14日） ---
+      const recentVol = volumes.slice(-14);
+      const mvEl = document.getElementById('mv-' + ticker);
+      const mvInfoEl = document.getElementById('mv-info-' + ticker);
+      if (recentVol.length < 2) {
+        mvInfoEl.textContent = '出来高データなし';
+      } else {
+        const VW = 160, VH = 40, vPad = 1;
+        const barCount = recentVol.length;
+        const barW = (VW - vPad * 2) / barCount - 1;
+        const vMax = Math.max(...recentVol) || 1;
+        const bars = recentVol.map((v, i) => {
+          const x = vPad + i * ((VW - vPad * 2) / barCount);
+          const h = (v / vMax) * (VH - vPad * 2);
+          const y = VH - vPad - h;
+          const isToday = i === barCount - 1;
+          const fill = isToday ? color : 'var(--text-muted)';
+          const opacity = isToday ? 1 : 0.55;
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}"/>`;
+        }).join('');
+        mvEl.innerHTML = bars;
+        // 出来高変化率（本日 vs 直近10日平均）
+        const today = recentVol[recentVol.length - 1];
+        const prev = recentVol.slice(-11, -1);
+        if (prev.length > 0) {
+          const avg = prev.reduce((s, v) => s + v, 0) / prev.length;
+          const volPct = avg > 0 ? ((today - avg) / avg) * 100 : 0;
+          const cls = volPct >= 50 ? 'pnl-neg' : volPct >= 25 ? 'pnl-neg' : volPct <= -25 ? '' : '';
+          const prefix = volPct >= 50 ? '🔥 ' : '';
+          const fmt = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+          mvInfoEl.innerHTML = `本日 ${fmt(today)} <span class="${cls}">${prefix}${volPct >= 0 ? '+' : ''}${volPct.toFixed(0)}%</span> vs 10日平均`;
+        } else {
+          mvInfoEl.innerHTML = `本日 ${recentVol[recentVol.length - 1]}`;
+        }
+      }
     } catch {
       document.getElementById('mc-info-' + ticker).textContent = '取得失敗';
     }
@@ -3428,6 +3481,16 @@
         const diff = ((p.currentPrice - p.sma50) / p.sma50) * 100;
         smaHtml = `<span class="${pnlClass(diff)}">${fmtPct(diff)}</span>`;
       }
+      let volHtml = '-';
+      if (p.volumeChangePct !== null && p.volumeChangePct !== undefined) {
+        const v = p.volumeChangePct;
+        let cls = 'color:var(--text-muted)';
+        let prefix = '';
+        if (v >= 50)       { cls = 'color:#dc2626;font-weight:700'; prefix = '🔥 '; }
+        else if (v >= 25)  { cls = 'color:#f59e0b;font-weight:600'; }
+        else if (v <= -25) { cls = 'color:var(--text-muted);opacity:0.7'; }
+        volHtml = `<span style="${cls}">${prefix}${v >= 0 ? '+' : ''}${v.toFixed(0)}%</span>`;
+      }
       const costStep = jp ? '1' : '0.01';
       const costValue = jp ? Math.round(p.avgCost) : p.avgCost.toFixed(2);
       const rowCls = dragEnabled ? 'draggable-row' : 'drag-disabled';
@@ -3445,6 +3508,7 @@
         <td class="hide-mobile">${mv}</td>
         <td class="hide-mobile">${pnl}</td>
         <td class="hide-mobile">${rsiHtml}</td>
+        <td class="hide-mobile">${volHtml}</td>
         <td class="hide-mobile">${smaHtml}</td>
         <td class="hide-mobile">${accountLabels[p.account] || p.account}</td>
       </tr>`;

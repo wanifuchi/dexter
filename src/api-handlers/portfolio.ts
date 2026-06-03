@@ -33,6 +33,8 @@ interface PriceData {
   rsi14: number | null;
   sma50: number | null;
   dailyCloses: number[]; // 相関計算用
+  recentVolumes: number[]; // 直近14日の出来高
+  volumeChangePct: number | null; // 本日 vs 直近10日平均
 }
 
 function calcRSI(closes: number[], period: number): number | null {
@@ -55,7 +57,7 @@ function calcSMA(closes: number[], period: number): number | null {
 }
 
 async function fetchPrice(ticker: string): Promise<PriceData> {
-  const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null, dailyCloses: [] };
+  const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null, dailyCloses: [], recentVolumes: [], volumeChangePct: null };
   try {
     const symbol = /^\d{4}$/.test(ticker) ? `${ticker}.T` : ticker;
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`;
@@ -68,11 +70,24 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
 
     const meta = result.meta ?? {};
     const closes: number[] = (result.indicators?.quote?.[0]?.close ?? []).filter((c: any) => c !== null);
+    const volumesRaw: number[] = (result.indicators?.quote?.[0]?.volume ?? []).filter((v: any) => v !== null && v !== undefined);
     const price = meta.regularMarketPrice ?? closes[closes.length - 1];
     // 日次変動の基準値: closes配列の最後から2番目（前営業日終値）を最優先
     // meta.chartPreviousClose は range=3mo の場合「3ヶ月前」の値を返すため使えない
     // meta.previousClose も提供されない場合があるため、closes配列を信頼する
     const previousClose = closes[closes.length - 2] ?? meta.previousClose ?? meta.chartPreviousClose;
+
+    // 直近14日の出来高 + 本日 vs 直近10日平均（本日除く）
+    const recentVolumes = volumesRaw.slice(-14);
+    let volumeChangePct: number | null = null;
+    if (volumesRaw.length >= 11) {
+      const today = volumesRaw[volumesRaw.length - 1];
+      const prev10 = volumesRaw.slice(-11, -1); // 本日を除く直近10日
+      const avg = prev10.reduce((s, v) => s + v, 0) / prev10.length;
+      if (avg > 0 && typeof today === 'number') {
+        volumeChangePct = ((today - avg) / avg) * 100;
+      }
+    }
 
     return {
       ticker,
@@ -82,6 +97,8 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
       rsi14: calcRSI(closes, 14),
       sma50: calcSMA(closes, 50),
       dailyCloses: closes,
+      recentVolumes,
+      volumeChangePct,
     };
   } catch {
     return empty;
@@ -217,6 +234,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         dayPnl,
         rsi14: pd?.rsi14 ?? null,
         sma50: pd?.sma50 ?? null,
+        volumeChangePct: pd?.volumeChangePct ?? null,
+        recentVolumes: pd?.recentVolumes ?? [],
       };
     });
 
