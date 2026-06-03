@@ -798,6 +798,13 @@
       </div>
     </div>
     <div id="sd-chart" style="width:100%;height:400px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
+    <div id="sd-volume" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:600">出来高推移（直近14日）</div>
+        <div id="sd-volume-meta" style="font-size:12px;color:var(--text-muted)"></div>
+      </div>
+      <svg id="sd-volume-chart" width="100%" height="80"></svg>
+    </div>
     <div id="sd-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;font-size:13px"></div>
     <div id="sd-smart-money" style="margin-bottom:16px;font-size:13px;color:var(--text-muted)">スマートマネー読み込み中...</div>
     <div style="display:flex;gap:8px">
@@ -2603,6 +2610,7 @@
     document.getElementById('sd-change').textContent = '';
     document.getElementById('sd-stats').innerHTML = '';
     document.getElementById('sd-chart').innerHTML = '';
+    document.getElementById('sd-volume').style.display = 'none';
     document.getElementById('sd-smart-money').innerHTML = 'スマートマネー読み込み中...';
     document.getElementById('stock-detail-overlay').style.display = 'block';
     document.body.style.overflow = 'hidden';
@@ -2714,7 +2722,61 @@
       changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`;
       changeEl.style.color = change >= 0 ? 'var(--green)' : 'var(--red)';
 
-      // stats
+      // 出来高棒グラフ（直近14日）+ 変化率
+      const volumesAll = (quote.volume || []).filter(v => v !== null && v !== undefined);
+      const recentVol = volumesAll.slice(-14);
+      const volumeBox = document.getElementById('sd-volume');
+      const volumeChartEl = document.getElementById('sd-volume-chart');
+      const volumeMetaEl = document.getElementById('sd-volume-meta');
+      const fmtVolNum = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+      let volChangePct = null;
+      if (recentVol.length >= 11) {
+        const today = recentVol[recentVol.length - 1];
+        const prev10 = recentVol.slice(-11, -1);
+        const avg10 = prev10.reduce((s, v) => s + v, 0) / prev10.length;
+        if (avg10 > 0) volChangePct = ((today - avg10) / avg10) * 100;
+      }
+      if (recentVol.length >= 2) {
+        const VW = volumeChartEl.clientWidth || 720;
+        const VH = 80;
+        const vPad = 2;
+        const barCount = recentVol.length;
+        const slotW = (VW - vPad * 2) / barCount;
+        const barW = Math.max(2, slotW - 2);
+        const vMax = Math.max(...recentVol) || 1;
+        const isUp = change >= 0;
+        const todayColor = isUp ? '#16a34a' : '#dc2626';
+        const bars = recentVol.map((v, i) => {
+          const x = vPad + i * slotW + (slotW - barW) / 2;
+          const h = (v / vMax) * (VH - vPad * 2);
+          const y = VH - vPad - h;
+          const isToday = i === barCount - 1;
+          const fill = isToday ? todayColor : 'var(--text-muted)';
+          const opacity = isToday ? 1 : 0.45;
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}"/>`;
+        }).join('');
+        // 平均線
+        const avg = recentVol.reduce((s, v) => s + v, 0) / recentVol.length;
+        const avgY = VH - vPad - (avg / vMax) * (VH - vPad * 2);
+        const avgLine = `<line x1="${vPad}" y1="${avgY.toFixed(1)}" x2="${VW - vPad}" y2="${avgY.toFixed(1)}" stroke="var(--text-muted)" stroke-dasharray="3,3" stroke-width="1" opacity="0.5"/>`;
+        volumeChartEl.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
+        volumeChartEl.innerHTML = bars + avgLine;
+        const todayVol = recentVol[recentVol.length - 1];
+        let metaStr = `本日 ${fmtVolNum(todayVol)}`;
+        if (volChangePct !== null) {
+          const cls = volChangePct >= 50 ? 'color:#dc2626;font-weight:700' : volChangePct >= 25 ? 'color:#f59e0b;font-weight:600' : volChangePct <= -25 ? 'color:var(--text-muted);opacity:0.7' : 'color:var(--text-muted)';
+          const prefix = volChangePct >= 50 ? '🔥 ' : '';
+          metaStr += ` <span style="${cls}">${prefix}${volChangePct >= 0 ? '+' : ''}${volChangePct.toFixed(0)}%</span> vs 10日平均`;
+        }
+        volumeMetaEl.innerHTML = metaStr;
+        volumeBox.style.display = 'block';
+      }
+
+      // stats（出来高カードに変化率追加）
+      const todayMarketVol = meta.regularMarketVolume || (recentVol.length > 0 ? recentVol[recentVol.length - 1] : 0);
+      const volPctBadge = volChangePct !== null
+        ? `<div style="font-size:10px;margin-top:2px;${volChangePct >= 50 ? 'color:#dc2626;font-weight:700' : volChangePct >= 25 ? 'color:#f59e0b' : volChangePct <= -25 ? 'color:var(--text-muted);opacity:0.7' : 'color:var(--text-muted)'}">${volChangePct >= 50 ? '🔥 ' : ''}${volChangePct >= 0 ? '+' : ''}${volChangePct.toFixed(0)}% vs 10日</div>`
+        : '';
       document.getElementById('sd-stats').innerHTML = `
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
           <div style="color:var(--text-muted);font-size:11px">前日終値</div>
@@ -2730,7 +2792,8 @@
         </div>
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:8px 12px">
           <div style="color:var(--text-muted);font-size:11px">出来高</div>
-          <div style="font-weight:600">${meta.regularMarketVolume > 1e6 ? (meta.regularMarketVolume/1e6).toFixed(1)+'M' : (meta.regularMarketVolume/1e3).toFixed(0)+'K'}</div>
+          <div style="font-weight:600">${fmtVolNum(todayMarketVol)}</div>
+          ${volPctBadge}
         </div>
       `;
 
