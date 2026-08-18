@@ -26,27 +26,50 @@ export function getFastModel(modelProvider: string, fallbackModel: string): stri
   return getProviderById(modelProvider)?.fastModel ?? fallbackModel;
 }
 
+function getRetryPolicy(
+  errorType: ReturnType<typeof classifyError>,
+  defaultMaxAttempts: number
+): { maxAttempts: number; baseDelayMs: number } {
+  switch (errorType) {
+    case 'rate_limit':
+      return { maxAttempts: Math.max(defaultMaxAttempts, 4), baseDelayMs: 1_500 };
+    case 'timeout':
+    case 'overloaded':
+    case 'server':
+      return { maxAttempts: Math.max(defaultMaxAttempts, 5), baseDelayMs: 1_000 };
+    default:
+      return { maxAttempts: defaultMaxAttempts, baseDelayMs: 500 };
+  }
+}
+
 // Generic retry helper with exponential backoff
 async function withRetry<T>(fn: () => Promise<T>, provider: string, maxAttempts = 3): Promise<T> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw e;
+      }
+
       const message = e instanceof Error ? e.message : String(e);
       const errorType = classifyError(message);
-      logger.error(`[${provider} API] ${errorType} error (attempt ${attempt + 1}/${maxAttempts}): ${message}`);
+      const retryPolicy = getRetryPolicy(errorType, maxAttempts);
+      logger.error(`[${provider} API] ${errorType} error (attempt ${attempt + 1}/${retryPolicy.maxAttempts}): ${message}`);
 
       if (isNonRetryableError(message)) {
         throw new Error(`[${provider} API] ${message}`);
       }
 
-      if (attempt === maxAttempts - 1) {
+      if (attempt >= retryPolicy.maxAttempts - 1) {
         throw new Error(`[${provider} API] ${message}`);
       }
-      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+
+      const delayMs = retryPolicy.baseDelayMs * 2 ** attempt;
+      logger.warn(`[${provider} API] retrying after ${delayMs}ms`);
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   }
-  throw new Error('Unreachable');
 }
 
 // Model provider configuration

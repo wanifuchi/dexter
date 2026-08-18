@@ -13,6 +13,7 @@ export type ErrorType =
   | 'auth'
   | 'timeout'
   | 'overloaded'
+  | 'server'
   | 'unknown';
 
 type ErrorPattern = RegExp | string;
@@ -35,6 +36,13 @@ const ERROR_PATTERNS = {
     'overloaded',
     'service unavailable',
     'high demand',
+  ],
+  server: [
+    'server_error',
+    'internal server error',
+    'responses api error',
+    'stream decode error',
+    'request failed',
   ],
   timeout: [
     'timeout',
@@ -79,6 +87,44 @@ const ERROR_PATTERNS = {
 const CHINESE_CONTEXT_OVERFLOW = ['上下文过长', '上下文超出', '超出最大上下文'];
 const ERROR_PAYLOAD_PREFIX_RE = /^\[[\w\s]+\]\s*|^(?:error|api\s*error)[:\s-]+/i;
 const HTTP_STATUS_PREFIX_RE = /^(\d{3})\s+(.+)$/s;
+const INSPECT_STRING_RE = /String\("((?:\\.|[^"\\])*)"\)/g;
+const INSPECT_REQUEST_ID_RE = /request(?:[_ ]id)?\s+([a-z0-9-]{8,})/i;
+
+function decodeInspectString(raw: string): string {
+  return raw.replaceAll(INSPECT_STRING_RE, (_, value: string) => `"${value}"`);
+}
+
+function extractRequestId(raw: string): string | undefined {
+  const match = raw.match(INSPECT_REQUEST_ID_RE);
+  return match?.[1];
+}
+
+function parseInspectObjectPayload(raw: string, httpCode?: number): ApiErrorInfo | null {
+  const objectIndex = raw.indexOf('Object {');
+  if (objectIndex === -1) return null;
+
+  const payload = raw.slice(objectIndex);
+  const typeMatch = payload.match(/["']?type["']?\s*:\s*(?:String\("((?:\\.|[^"\\])*)"\)|"((?:\\.|[^"\\])*)")/);
+  const codeMatch = payload.match(/["']?code["']?\s*:\s*(?:String\("((?:\\.|[^"\\])*)"\)|"((?:\\.|[^"\\])*)")/);
+  const messageMatch = payload.match(/["']?message["']?\s*:\s*(?:String\("((?:\\.|[^"\\])*)"\)|"((?:\\.|[^"\\])*)")/s);
+
+  const type = typeMatch?.[1] ?? typeMatch?.[2];
+  const code = codeMatch?.[1] ?? codeMatch?.[2];
+  const message = messageMatch?.[1] ?? messageMatch?.[2];
+  const requestId = extractRequestId(message ?? raw);
+
+  if (!type && !code && !message) {
+    return null;
+  }
+
+  return {
+    httpCode,
+    type: type ? decodeInspectString(type) : undefined,
+    code: code ? decodeInspectString(code) : undefined,
+    message: message ? decodeInspectString(message) : undefined,
+    requestId,
+  };
+}
 
 export function parseApiErrorInfo(raw?: string): ApiErrorInfo | null {
   if (!raw) return null;
@@ -94,6 +140,11 @@ export function parseApiErrorInfo(raw?: string): ApiErrorInfo | null {
   if (httpMatch) {
     httpCode = Number.parseInt(httpMatch[1], 10);
     trimmed = httpMatch[2].trim();
+  }
+
+  const inspectPayload = parseInspectObjectPayload(trimmed, httpCode);
+  if (inspectPayload) {
+    return inspectPayload;
   }
 
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
@@ -204,6 +255,21 @@ export function isOverloadedError(raw?: string): boolean {
   return raw ? matchesPatterns(raw, ERROR_PATTERNS.overloaded) : false;
 }
 
+export function isServerError(raw?: string): boolean {
+  if (!raw) return false;
+
+  const info = parseApiErrorInfo(raw);
+  if (info?.type === 'server_error' || info?.code === 'server_error') {
+    return true;
+  }
+
+  if (matchesPatterns(raw, ERROR_PATTERNS.server)) {
+    return true;
+  }
+
+  return /\b5\d\d\b/.test(raw) && !isOverloadedError(raw);
+}
+
 export function classifyError(raw?: string): ErrorType {
   if (!raw) return 'unknown';
 
@@ -213,6 +279,7 @@ export function classifyError(raw?: string): ErrorType {
   if (isAuthError(raw)) return 'auth';
   if (isTimeoutError(raw)) return 'timeout';
   if (isOverloadedError(raw)) return 'overloaded';
+  if (isServerError(raw)) return 'server';
 
   return 'unknown';
 }
@@ -247,6 +314,8 @@ export function formatUserFacingError(raw: string, provider?: string): string {
       return 'LLM request timed out. Please try again.';
     case 'overloaded':
       return 'The AI service is temporarily overloaded. Please try again in a moment.';
+    case 'server':
+      return 'The AI service hit a temporary server error. Dexter retried automatically, but the request still failed. Please try again.';
     case 'unknown':
     default:
       if (info?.message) {
