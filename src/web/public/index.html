@@ -2701,6 +2701,18 @@
     renderStockChart();
   }
 
+  function findDailyPrevClose(timestamps, closes, meta) {
+    const offset = meta.gmtoffset || 0;
+    const toLocalDay = (t) => Math.floor((t + offset) / 86400);
+    const marketDay = meta.regularMarketTime ? toLocalDay(meta.regularMarketTime) : null;
+    for (let i = closes.length - 1; i >= 0; i--) {
+      if (closes[i] === null || closes[i] === undefined) continue;
+      if (marketDay !== null && timestamps[i] && toLocalDay(timestamps[i]) >= marketDay) continue;
+      return closes[i];
+    }
+    return null;
+  }
+
   async function loadStockChart(ticker, range) {
     const chartEl = document.getElementById('sd-chart');
     chartEl.innerHTML = '<div style="text-align:center;padding:80px 0;color:var(--text-muted)">読み込み中...</div>';
@@ -2722,12 +2734,12 @@
       // 前日終値:
       //   - 1d/5d レンジ（分足）: meta.chartPreviousClose = 昨日の終値 ✓
       //   - 1mo以上（日足）: meta.chartPreviousClose は「レンジ開始前」の値（1ヶ月前など）になるため使えない
-      //     → 日足closes配列の最後から2番目（前営業日終値）を優先
+      //     → regularMarketTime の取引日より前の最後の有効終値を使う
+      //       （引け後は当日足の close が null のことがあり、null を詰めて後ろ2番目を取ると2営業日前になる）
       const isIntradayRange = interval.includes('m');
-      const closesArr = (quote.close || []).filter(c => c !== null);
       const prevClose = isIntradayRange
         ? (meta.chartPreviousClose || meta.previousClose)
-        : (closesArr.length >= 2 ? closesArr[closesArr.length - 2] : (meta.previousClose || meta.chartPreviousClose));
+        : (findDailyPrevClose(timestamps, quote.close || [], meta) ?? (meta.previousClose || meta.chartPreviousClose));
       const change = price - prevClose;
       const changePct = prevClose ? (change / prevClose * 100) : 0;
       document.getElementById('sd-price').textContent = `$${price.toFixed(2)}`;

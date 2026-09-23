@@ -56,6 +56,42 @@ function calcSMA(closes: number[], period: number): number | null {
   return slice.reduce((s, v) => s + v, 0) / period;
 }
 
+function isNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * 日足から「前営業日終値」と指標計算用の終値配列を求める
+ * - Yahooは引け後しばらく当日足の close を null で返すため、null を詰めてから
+ *   後ろ2番目を取ると2営業日前の終値になり、本日の損益が2日分の変動になる
+ * - meta.chartPreviousClose は range 開始前の値なので使えない
+ * → regularMarketTime の取引日より前の最後の有効終値を前日終値とする
+ */
+export function resolveDailyCloses(
+  timestamps: number[],
+  rawCloses: Array<number | null>,
+  meta: any,
+  price: number | null,
+): { closes: number[]; previousClose: number | null } {
+  const gmtoffset = isNumber(meta.gmtoffset) ? meta.gmtoffset : 0;
+  const toLocalDay = (t: number) => Math.floor((t + gmtoffset) / 86400);
+  const marketDay = isNumber(meta.regularMarketTime) ? toLocalDay(meta.regularMarketTime) : null;
+
+  let previousClose: number | null = null;
+  const closes: number[] = [];
+  for (let i = 0; i < rawCloses.length; i++) {
+    const isMarketDayBar = marketDay !== null && isNumber(timestamps[i]) && toLocalDay(timestamps[i]) === marketDay;
+    // 当日足の close が未確定(null)なら現在値で補完
+    const close = isMarketDayBar && !isNumber(rawCloses[i]) ? price : rawCloses[i];
+    if (!isNumber(close)) continue;
+    closes.push(close);
+    if (!isMarketDayBar) previousClose = close;
+  }
+
+  if (marketDay === null) previousClose = closes.at(-2) ?? null;
+  return { closes, previousClose: previousClose ?? (isNumber(meta.previousClose) ? meta.previousClose : null) };
+}
+
 async function fetchPrice(ticker: string): Promise<PriceData> {
   const empty: PriceData = { ticker, price: null, previousClose: null, name: null, rsi14: null, sma50: null, dailyCloses: [], recentVolumes: [], volumeChangePct: null };
   try {
@@ -69,13 +105,12 @@ async function fetchPrice(ticker: string): Promise<PriceData> {
     if (!result) return empty;
 
     const meta = result.meta ?? {};
-    const closes: number[] = (result.indicators?.quote?.[0]?.close ?? []).filter((c: any) => c !== null);
+    const rawCloses: Array<number | null> = result.indicators?.quote?.[0]?.close ?? [];
     const volumesRaw: number[] = (result.indicators?.quote?.[0]?.volume ?? []).filter((v: any) => v !== null && v !== undefined);
-    const price = meta.regularMarketPrice ?? closes[closes.length - 1];
-    // 日次変動の基準値: closes配列の最後から2番目（前営業日終値）を最優先
-    // meta.chartPreviousClose は range=3mo の場合「3ヶ月前」の値を返すため使えない
-    // meta.previousClose も提供されない場合があるため、closes配列を信頼する
-    const previousClose = closes[closes.length - 2] ?? meta.previousClose ?? meta.chartPreviousClose;
+    const price = meta.regularMarketPrice ?? rawCloses.filter(isNumber).at(-1);
+    const { closes, previousClose } = resolveDailyCloses(
+      result.timestamp ?? [], rawCloses, meta, typeof price === 'number' ? price : null,
+    );
 
     // 直近14日の出来高 + 本日 vs 直近10日平均（本日除く）
     const recentVolumes = volumesRaw.slice(-14);
