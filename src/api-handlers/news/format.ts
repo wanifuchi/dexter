@@ -8,6 +8,10 @@ import type { JapaneseDigest } from './translate.js';
 export interface AlertItem {
   assessment: ArticleAssessment;
   targets: NotifyTarget[];
+  /** 同じ出来事（送信済み判定に使う） */
+  eventKeys: string[];
+  /** 同じ出来事を報じた他の記事 */
+  corroborating: ArticleAssessment[];
   digest: JapaneseDigest;
 }
 
@@ -17,6 +21,11 @@ export const LINE_TEXT_LIMIT = 4800;
 export const LINE_MESSAGES_PER_PUSH = 5;
 
 export function categoryLabel(c: Classification): string {
+  if (c.category === 'price_target') {
+    if (c.direction === 'up') return '目標株価変更（引き上げ）';
+    if (c.direction === 'down') return '目標株価変更（引き下げ）';
+    return CATEGORY_LABELS.price_target;
+  }
   if (c.category !== 'rating_change') return CATEGORY_LABELS[c.category];
   if (c.direction === 'up') return '格上げ';
   if (c.direction === 'down') return '格下げ';
@@ -51,7 +60,9 @@ export function formatAlertItem(item: AlertItem): string {
   if (digest.reported) lines.push(`・報道内容: ${digest.reported}`);
   if (digest.opinion) lines.push(`・筆者/アナリストの意見: ${digest.opinion}`);
   if (digest.forecast) lines.push(`・予測・目標: ${digest.forecast}`);
-  lines.push('・一次資料: 未確認（記事の記載に基づく）');
+  lines.push(a.isPrimarySource
+    ? `・一次資料: 企業自身の発表文（${a.article.publisher}配信）`
+    : '・一次資料: 未確認（記事の記載に基づく）');
 
   lines.push(`対象銘柄: ${targets.map(targetLine).join(' / ')}`);
   const others = a.subjectNames.filter((n) => !targets.some((t) => n.startsWith(t.ticker)));
@@ -59,6 +70,10 @@ export function formatAlertItem(item: AlertItem): string {
   lines.push(`記事の分類: ${categoryLabel(a.classification)}`);
   lines.push(`確認範囲: ${a.bodyChecked ? '見出し＋本文（取得できた範囲）' : '見出しのみ確認'}`);
   lines.push(`媒体: ${a.article.publisher || '不明'}`);
+  if (item.corroborating.length > 0) {
+    const publishers = [...new Set(item.corroborating.map((c) => c.article.publisher || '不明'))];
+    lines.push(`同じ内容の報道: 他${item.corroborating.length}件（${publishers.join(', ')}）`);
+  }
   lines.push(`公開: ${formatJst(a.article.publishedAt)}`);
   lines.push(a.article.link);
   return lines.join('\n');

@@ -17,6 +17,7 @@ export type NewsCategory =
   | 'earnings_preview'
   | 'opinion'
   | 'weekly_roundup'
+  | 'company_release'
   | 'unclassified';
 
 export type RatingDirection = 'up' | 'down';
@@ -66,6 +67,8 @@ export interface ArticleAssessment {
   article: RawArticle;
   classification: Classification;
   bodyChecked: boolean;
+  /** 企業自身の発表文（プレスリリース配信）で、発表元が見出しの主題である */
+  isPrimarySource: boolean;
   /** 見出し・本文から読み取れた主題企業（監視外を含む表示用） */
   subjectNames: string[];
   watched: WatchedMention[];
@@ -79,6 +82,7 @@ export const CATEGORY_LABELS: Record<NewsCategory, string> = {
   earnings_preview: '決算予告',
   opinion: '解説・意見',
   weekly_roundup: '週間まとめ',
+  company_release: '企業発表',
   unclassified: '分類未確認',
 };
 
@@ -89,7 +93,16 @@ export const NOTIFY_CATEGORIES: ReadonlySet<NewsCategory> = new Set<NewsCategory
   'price_target',
   'earnings_release',
   'earnings_preview',
+  'company_release',
 ]);
+
+/** 企業の発表文を配信するプレスリリース配信社（記事ではなく一次資料） */
+const PRESS_RELEASE_PUBLISHERS_RE =
+  /^(?:business wire|globenewswire|globe newswire|pr newswire|prnewswire|accesswire|access newswire|newsfile|cision|tdnet)\b/i;
+
+export function isPressReleasePublisher(publisher: string): boolean {
+  return PRESS_RELEASE_PUBLISHERS_RE.test(publisher.trim());
+}
 
 const RATING_WORDS =
   '(?:strong buy|buy|outperform|overweight|accumulate|add|positive|neutral|hold|equal[- ]weight|' +
@@ -108,7 +121,7 @@ const RATING_MAINTAINED_RE = new RegExp(
   'i',
 );
 const PRICE_TARGET_CHANGE_RE =
-  /\b(?:raises?|raised|lifts?|lifted|boosts?|boosted|hikes?|hiked|ups|cuts?|lowers?|lowered|trims?|trimmed|slashes|slashed|reduces?|reduced)\b[^.?!]{0,50}\b(?:price target|target price|pt|price objective)\b|\b(?:price target|target price|pt)\b[^.?!]{0,20}\b(?:raised|lifted|boosted|cut|lowered|trimmed|slashed)\b|\bprice target (?:to|from) \$/i;
+  /\b(?:raises?|raised|lifts?|lifted|boosts?|boosted|hikes?|hiked|ups|cuts?|lowers?|lowered|trims?|trimmed|slashes|slashed|reduces?|reduced|adjusts?|adjusted|revises?|revised|changes?|changed|updates?|updated)\b[^.?!]{0,50}\b(?:price target|target price|pt|price objective)\b|\b(?:price target|target price|pt)\b[^.?!]{0,20}\b(?:raised|lifted|boosted|cut|lowered|trimmed|slashed)\b|\bprice target (?:to|from) \$/i;
 const PRICE_TARGET_UNCHANGED_RE =
   /\btargets?\b[^.?!]{0,80}\b(?:not changed|unchanged|were not changed|was not changed|no change)\b/i;
 
@@ -151,6 +164,25 @@ function ratingChangeOf(text: string): Classification | null {
   return { category: 'rating_change', direction, reason: `レーティング変更の表現: "${(up ?? down)?.[0] ?? '格上げ/格下げ'}"` };
 }
 
+const PT_UP_RE = /\b(?:raises?|raised|lifts?|lifted|boosts?|boosted|hikes?|hiked|ups)\b/i;
+const PT_DOWN_RE = /\b(?:cuts?|lowers?|lowered|trims?|trimmed|slashes|slashed|reduces?|reduced)\b/i;
+const PT_FROM_TO_RE = /\bto \$([\d,]+(?:\.\d+)?) from \$([\d,]+(?:\.\d+)?)/i;
+
+/** 目標株価の向き。"to $369 From $283" の数値、または動詞から判定。どちらも無ければ断定しない */
+function priceTargetDirection(text: string): RatingDirection | undefined {
+  const m = PT_FROM_TO_RE.exec(text);
+  if (m) {
+    const to = Number(m[1]!.replace(/,/g, ''));
+    const from = Number(m[2]!.replace(/,/g, ''));
+    if (to > from) return 'up';
+    if (to < from) return 'down';
+    return undefined;
+  }
+  const up = PT_UP_RE.test(text);
+  const down = PT_DOWN_RE.test(text);
+  return up && !down ? 'up' : down && !up ? 'down' : undefined;
+}
+
 /**
  * アナリスト行動（格上げ/据え置き/目標株価）を1つの文から判定する。
  * 本文中の該当文や、見出しの判定で使う。
@@ -162,7 +194,7 @@ export function classifyAnalystAction(text: string): Classification | null {
   const maintained = RATING_MAINTAINED_RE.exec(text);
   const ptChange = PRICE_TARGET_CHANGE_RE.exec(text);
   if (ptChange) {
-    return { category: 'price_target', reason: `目標株価変更の表現: "${ptChange[0]}"` };
+    return { category: 'price_target', direction: priceTargetDirection(text), reason: `目標株価変更の表現: "${ptChange[0]}"` };
   }
   if (maintained) {
     return { category: 'rating_maintained', reason: `評価維持の表現: "${maintained[0]}"` };
@@ -310,14 +342,36 @@ export function findWatchedMentions(title: string, body: string | undefined, tic
   return mentions;
 }
 
+/** 有料記事の購読案内など、記事本文ではないページの目印 */
+const PAYWALL_RE =
+  /\bupgrade to read\b|subscription (?:plan )?is required|\bsubscribe to (?:continue|read|unlock)\b|\balready a subscriber\b|\bsign in to (?:read|continue)\b|\bthis (?:article|content) is (?:for|available to) (?:subscribers|premium)|\bto continue reading\b|\bpremium news articles\b/i;
+const MIN_BODY_CHARS = 200;
+
+/**
+ * 取得した本文が分類・要約に使えるものか判定する。
+ * 有料記事の案内文や短すぎるものは「本文なし（見出しのみ確認）」として扱う。
+ */
+export function usableBody(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  const text = body.trim();
+  if (text.length < MIN_BODY_CHARS || PAYWALL_RE.test(text)) return undefined;
+  return text;
+}
+
 export function assessArticle(article: RawArticle, body: string | undefined, tickers: WatchedTicker[]): ArticleAssessment {
-  const bodyText = body && body.trim().length >= 200 ? body : undefined;
-  const classification = classifyArticle(article.title, bodyText);
+  const bodyText = usableBody(body);
   const watched = findWatchedMentions(article.title, bodyText, tickers);
+  // 配信社経由の発表文でも、発表元が監視銘柄（見出しの主題）でなければ一次資料とは扱わない
+  const isPrimarySource = isPressReleasePublisher(article.publisher) && watched.some((w) => w.role === 'subject' && !w.viaUnderlying);
+  let classification = classifyArticle(article.title, bodyText);
+  if (isPrimarySource && (classification.category === 'unclassified' || classification.category === 'opinion')) {
+    classification = { category: 'company_release', reason: `企業の発表文（${article.publisher}配信）` };
+  }
   return {
     article,
     classification,
     bodyChecked: Boolean(bodyText),
+    isPrimarySource,
     subjectNames: subjectNamesOf(article.title, bodyText, watched, tickers),
     watched,
   };
@@ -376,4 +430,49 @@ export function aliasesFromName(ticker: string, name: string | undefined): strin
 export function underlyingTickerFromName(name: string | undefined): string | undefined {
   const m = name?.match(/\bDaily ([A-Z]{1,5}) (?:Bull|Bear)\b/);
   return m?.[1];
+}
+
+// ---------- 同じ出来事の判定 ----------
+
+const ANALYST_VERB_RE =
+  /^(?:just |analyst [A-Z][a-z]+ [A-Z][a-z]+ )?(?:upgrades?|upgraded|downgrades?|downgraded|raises?|raised|lifts?|lifted|cuts?|lowers?|lowered|trims?|trimmed|boosts?|boosted|maintains?|maintained|keeps?|kept|reiterates?|reiterated|initiates?|initiated)\b/i;
+const BROKER_TRAILING_RE =
+  /\b(?:[Aa]fter|[Aa]s|[Bb]y|[Ff]rom|[Ff]ollowing|[Tt]riggers?|[Oo]n)\s+([A-Z][\w&.'-]*(?:\s+[A-Z&][\w&.'-]*){0,3}?)\s+(?:[Uu]pgrade|[Dd]owngrade|[Pp]rice [Tt]arget|[Rr]ating)s?\b/;
+const NOT_BROKER_RE = /^(?:the|this|wall street|analysts?|stocks?|shares|he|she|they|it)$/i;
+
+/** 見出し・文からアナリスト（証券会社）名を取り出す。取り出せなければ undefined */
+export function extractBroker(text: string): string | undefined {
+  const words = text.trim().split(/\s+/);
+  // 先頭の大文字語1〜4個 + アナリスト行動の動詞（例: "Piper Sandler Downgrades ..."）
+  for (let n = 1; n <= 4 && n < words.length; n++) {
+    if (!/^[A-Z&]/.test(words[n - 1]!)) break;
+    const name = words.slice(0, n).join(' ');
+    if (ANALYST_VERB_RE.test(words.slice(n).join(' ')) && !NOT_BROKER_RE.test(name)) return name.toLowerCase();
+  }
+  // "... After Piper Sandler Downgrade" 形式
+  const m = BROKER_TRAILING_RE.exec(text);
+  const name = m?.[1]?.trim();
+  return name && !NOT_BROKER_RE.test(name) ? name.toLowerCase() : undefined;
+}
+
+function jstDate(iso: string): string {
+  const d = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
+  return Number.isNaN(d.getTime()) ? 'unknown' : d.toISOString().slice(0, 10);
+}
+
+/**
+ * 通知先ごとの「出来事」キー。別媒体が同じ出来事を報じた記事を1件にまとめ、
+ * 実行をまたいだ再通知も防ぐ。アナリスト行動は証券会社名まで含めて区別する。
+ */
+export function eventKeysOf(a: ArticleAssessment, targets: NotifyTarget[]): string[] {
+  const date = jstDate(a.article.publishedAt);
+  return targets.map((t) => {
+    const c = t.classification;
+    const isAnalyst = c.category === 'rating_change' || c.category === 'rating_maintained' || c.category === 'price_target';
+    const evidence = t.role === 'mentioned' ? a.watched.find((w) => w.ticker === t.ticker)?.evidence : undefined;
+    const broker = isAnalyst ? (extractBroker(a.article.title) ?? (evidence ? extractBroker(evidence) : undefined) ?? '-') : '';
+    // 企業発表は発表ごとに別の出来事として扱う（見出しで区別）
+    const detail = c.category === 'company_release' ? a.article.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : broker;
+    return `event:${t.ticker}:${c.category}:${c.direction ?? '-'}:${detail}:${date}`;
+  });
 }

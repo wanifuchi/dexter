@@ -21,6 +21,7 @@ import {
   NOTIFY_CATEGORIES,
   notifyTargetsOf,
   underlyingTickerFromName,
+  usableBody,
 } from './news/classify.js';
 import type { ArticleAssessment, RawArticle, WatchedTicker } from './news/classify.js';
 import { buildDigest, llmTranslator } from './news/translate.js';
@@ -28,12 +29,16 @@ import type { Translator } from './news/translate.js';
 import { packMessages } from './news/format.js';
 import type { AlertItem } from './news/format.js';
 import { dedupeKeysOf, getSentStore, normalizeTitle } from './news/sent-store.js';
+import { eventKeysOf } from './news/classify.js';
+import type { NotifyTarget } from './news/classify.js';
 import type { SentStore } from './news/sent-store.js';
 
 export const maxDuration = 60;
 
 const LOOKBACK_MS = 24 * 60 * 60 * 1000;
-const NEWS_PER_TICKER = 10;
+// 50件指定だと0件を返すtickerがある（例: TE）ため40件にし、0件なら少ない件数で取り直す
+const NEWS_PER_TICKER = 40;
+const NEWS_PER_TICKER_FALLBACK = 10;
 const MAX_BODY_FETCHES = 12;
 const MAX_ALERTS_PER_RUN = 8;
 // Yahoo FinanceのAPIはブラウザ風の長いUAだと429を返すため、APIと記事HTMLでUAを分ける
@@ -66,11 +71,16 @@ async function fetchCompanyName(ticker: string): Promise<string | undefined> {
   return meta?.longName ?? meta?.shortName ?? undefined;
 }
 
-async function searchNews(ticker: string): Promise<RawArticle[]> {
+async function searchNewsRaw(ticker: string, count: number): Promise<any[]> {
   const json = await fetchJson(
-    `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&newsCount=${NEWS_PER_TICKER}&quotesCount=0`,
+    `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&newsCount=${count}&quotesCount=0`,
   );
-  const news: any[] = json?.news ?? [];
+  return json?.news ?? [];
+}
+
+async function searchNews(ticker: string): Promise<RawArticle[]> {
+  let news = await searchNewsRaw(ticker, NEWS_PER_TICKER);
+  if (news.length === 0) news = await searchNewsRaw(ticker, NEWS_PER_TICKER_FALLBACK);
   return news.map((n) => ({
     id: String(n.uuid ?? n.link ?? n.title),
     title: String(n.title ?? ''),
@@ -168,6 +178,37 @@ function needsBody(article: RawArticle, watched: WatchedTicker[]): number {
   return watched.some((w) => related.has(w.ticker)) ? 1 : 0;
 }
 
+interface Candidate {
+  assessment: ArticleAssessment;
+  targets: NotifyTarget[];
+  eventKeys: string[];
+}
+
+/** 一次資料 → 本文確認済み → 早く出た記事 の順で、同じ出来事の代表記事を選ぶ */
+function representativeOrder(a: Candidate, b: Candidate): number {
+  if (a.assessment.isPrimarySource !== b.assessment.isPrimarySource) return a.assessment.isPrimarySource ? -1 : 1;
+  if (a.assessment.bodyChecked !== b.assessment.bodyChecked) return a.assessment.bodyChecked ? -1 : 1;
+  return a.assessment.article.publishedAt.localeCompare(b.assessment.article.publishedAt);
+}
+
+/** 同じ出来事を報じた複数の記事を1件にまとめ、他の記事は「同じ内容の報道」として添える */
+function clusterSameEvents(candidates: Candidate[]): Array<Candidate & { corroborating: ArticleAssessment[] }> {
+  const groups: Candidate[][] = [];
+  for (const c of candidates) {
+    const group = groups.find((g) => g.some((m) => m.eventKeys.some((k) => c.eventKeys.includes(k))));
+    if (group) group.push(c);
+    else groups.push([c]);
+  }
+  return groups.map((g) => {
+    const [head, ...rest] = [...g].sort(representativeOrder);
+    return {
+      ...head!,
+      eventKeys: [...new Set(g.flatMap((m) => m.eventKeys))],
+      corroborating: rest.map((m) => m.assessment),
+    };
+  });
+}
+
 export interface NewsAlertReport {
   status: 'ok' | 'line_failed';
   dryRun: boolean;
@@ -180,7 +221,9 @@ export interface NewsAlertReport {
     id: string; title: string; publisher: string; category: string; reason: string;
     bodyChecked: boolean; watched: Array<{ ticker: string; role: string; category?: string }>;
   }>;
-  alerts: Array<{ id: string; title: string; targets: string[]; jaTitle: string | null; rejected: string[] }>;
+  alerts: Array<{
+    id: string; title: string; sameEventArticles: string[]; targets: string[]; jaTitle: string | null; rejected: string[];
+  }>;
   deferred: string[];
   line: { attempted: boolean; success?: boolean; status?: number; requestId?: string; error?: string; messages?: number };
   messages?: string[];
@@ -193,7 +236,9 @@ export async function runNewsAlerts(deps: NewsAlertDeps, opts: { dryRun?: boolea
   const items = await deps.loadTickers();
   const watched = await resolveWatchedTickers(items, deps.fetchCompanyName, errors);
 
-  const lists = await Promise.all(items.map(({ ticker }) => settle(deps.searchNews(ticker), errors, `ニュース取得 ${ticker}`)));
+  // レバレッジETF等は原資産のニュースも取得する（例: MUU → MU）
+  const searchTickers = [...new Set([...items.map((i) => i.ticker), ...watched.flatMap((w) => w.underlying ? [w.underlying.ticker] : [])])];
+  const lists = await Promise.all(searchTickers.map((ticker) => settle(deps.searchNews(ticker), errors, `ニュース取得 ${ticker}`)));
   const articles = mergeArticles(lists.map((l) => l ?? []), deps.now() - LOOKBACK_MS);
 
   // 送信済みの記事は本文取得・翻訳もしない
@@ -212,13 +257,24 @@ export async function runNewsAlerts(deps: NewsAlertDeps, opts: { dryRun?: boolea
     .slice(0, MAX_BODY_FETCHES);
   const bodies = new Map<string, string | undefined>();
   await Promise.all(bodyTargets.map(async ({ a }) => {
-    bodies.set(a.id, await settle(deps.fetchBody(a.link), errors, `本文取得 ${a.link}`));
+    // 有料記事の案内文などは本文として扱わない（分類・要約・「本文確認」表示のすべてで）
+    bodies.set(a.id, usableBody(await settle(deps.fetchBody(a.link), errors, `本文取得 ${a.link}`)));
   }));
 
   const assessments: ArticleAssessment[] = fresh.map((a) => assessArticle(a, bodies.get(a.id), watched));
-  const candidates = assessments
+  const rawCandidates = assessments
     .map((assessment) => ({ assessment, targets: notifyTargetsOf(assessment) }))
     .filter((c) => c.targets.length > 0)
+    .map((c) => ({ ...c, eventKeys: eventKeysOf(c.assessment, c.targets) }));
+
+  // 以前の実行で通知済みの出来事（別媒体の同じ報道）は送らない
+  const unsentCandidates: typeof rawCandidates = [];
+  for (const c of rawCandidates) {
+    const taken = await settle(deps.sentStore.isTaken(c.eventKeys), errors, '送信済み確認（出来事）');
+    if (taken) alreadySent++;
+    else unsentCandidates.push(c);
+  }
+  const candidates = clusterSameEvents(unsentCandidates)
     .sort((x, y) => y.assessment.article.publishedAt.localeCompare(x.assessment.article.publishedAt));
   const selected = candidates.slice(0, MAX_ALERTS_PER_RUN);
   const deferred = candidates.slice(MAX_ALERTS_PER_RUN).map((c) => c.assessment.article.id);
@@ -256,6 +312,7 @@ export async function runNewsAlerts(deps: NewsAlertDeps, opts: { dryRun?: boolea
     alerts: alertItems.map((i) => ({
       id: i.assessment.article.id,
       title: i.assessment.article.title,
+      sameEventArticles: i.corroborating.map((c) => `${c.article.publisher}: ${c.article.title}`),
       targets: i.targets.map((t) => `${t.ticker}:${t.classification.category}:${t.role}`),
       jaTitle: i.digest.jaTitle,
       rejected: i.digest.rejected,
@@ -285,7 +342,11 @@ async function sendAndRecord(
   report: NewsAlertReport,
 ): Promise<NewsAlertReport> {
   const included = alertItems.filter((i) => packed.includedIds.includes(i.assessment.article.id));
-  const keys = included.flatMap((i) => dedupeKeysOf(i.assessment.article));
+  const keys = [...new Set(included.flatMap((i) => [
+    ...dedupeKeysOf(i.assessment.article),
+    ...i.corroborating.flatMap((c) => dedupeKeysOf(c.article)),
+    ...i.eventKeys,
+  ]))];
 
   // 並行実行による二重送信を防ぐため、送信前に予約する
   const claimed = await deps.sentStore.claim(keys);
