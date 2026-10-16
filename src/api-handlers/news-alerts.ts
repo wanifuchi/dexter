@@ -36,7 +36,9 @@ const LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const NEWS_PER_TICKER = 10;
 const MAX_BODY_FETCHES = 12;
 const MAX_ALERTS_PER_RUN = 8;
-const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
+// Yahoo FinanceのAPIはブラウザ風の長いUAだと429を返すため、APIと記事HTMLでUAを分ける
+const API_USER_AGENT = 'Mozilla/5.0';
+const PAGE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 
 export interface NewsAlertDeps {
   loadTickers(): Promise<Array<{ ticker: string; name?: string }>>;
@@ -52,7 +54,7 @@ export interface NewsAlertDeps {
 // ---------- 外部データ取得 ----------
 
 async function fetchJson(url: string, timeoutMs = 8000): Promise<any> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(timeoutMs) });
+  const res = await fetch(url, { headers: { 'User-Agent': API_USER_AGENT }, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
   return res.json();
 }
@@ -81,7 +83,7 @@ async function searchNews(ticker: string): Promise<RawArticle[]> {
 }
 
 async function fetchBody(url: string): Promise<string | undefined> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, redirect: 'follow', signal: AbortSignal.timeout(8000) });
+  const res = await fetch(url, { headers: { 'User-Agent': PAGE_USER_AGENT }, redirect: 'follow', signal: AbortSignal.timeout(8000) });
   if (!res.ok) return undefined;
   const html = await res.text();
   const extracted = await extractReadableContent({ html, url: res.url || url, extractMode: 'text' });
